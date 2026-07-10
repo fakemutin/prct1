@@ -1664,6 +1664,824 @@ def moderator_kb():
     # ============================================================
     # 10. ОБРАБОТЧИКИ ТЕКСТОВЫХ КНОПОК МЕНЮ (ВСЕ ОТПРАВЛЯЮТ НОВЫЕ СООБЩЕНИЯ)
     # ============================================================
+@bot.message_handler(func=lambda m: m.from_user.id in user_states and getattr(m, 'text', None))
+def handle_states(m):
+    user_id = m.from_user.id
+    if user_id not in user_states:
+        return
+    state = user_states[user_id].get('state')
+
+    if m.text == '❌ Отменить':
+        del user_states[user_id]
+        safe_send(m.chat.id, '✅ Отменено.', reply_markup=main_menu(user_id))
+        return
+
+    if m.text in ('🔙 Назад', '⬅️ Назад'):
+        del user_states[user_id]
+        safe_send(m.chat.id, 'Главное меню', reply_markup=main_menu(user_id))
+        return
+
+    if state == 'verification':
+        code = m.text.strip()
+        saved_code = user_states[user_id].get('code')
+        saved_time = user_states[user_id].get('time')
+        if saved_time and datetime.now() - saved_time > timedelta(minutes=10):
+            del user_states[user_id]
+            safe_send(m.chat.id, '❌ Код истёк. Начните заново.', reply_markup=main_menu(user_id))
+        elif code == saved_code:
+            update_field(user_id, 'is_verified', 1)
+            del user_states[user_id]
+            safe_send(m.chat.id, '✅ ВЕРИФИКАЦИЯ ПРОЙДЕНА!', reply_markup=main_menu(user_id))
+        else:
+            safe_send(m.chat.id, '❌ Неверный код. Попробуйте снова.', reply_markup=cancel_kb())
+        return
+
+    elif state == 'exchange_rub_to_crf':
+        try:
+            amount_rub = float(m.text.replace(',', '.'))
+        except Exception:
+            safe_send(m.chat.id, "❌ Введите число.")
+            return
+        if amount_rub <= 0:
+            safe_send(m.chat.id, "❌ Сумма должна быть > 0")
+            return
+        if get_balance_rub(user_id) < amount_rub:
+            safe_send(m.chat.id, f"❌ Недостаточно ₽. У вас {get_balance_rub(user_id):.2f}")
+            return
+        rate = get_crf_rate()
+        commission = amount_rub * (CONFIG.get('exchange_commission_percent', 10.0) / 100.0)
+        amount_crf = (amount_rub - commission) / rate
+        add_transaction_rub(
+            user_id,
+            -amount_rub,
+            'exchange_rub_to_crf',
+            f'Обмен {amount_rub:.2f} ₽ на CRF (комиссия {commission:.2f} ₽)',
+        )
+        add_transaction_rub(0, commission, 'exchange_commission_rub', f'Комиссия за обмен ₽→CRF от {user_id}')
+        c = get_cursor()
+        c.execute('UPDATE stats SET value = value + ? WHERE key = "commission_exchange_rub"', (commission,))
+        db.commit()
+        add_transaction_crf(
+            user_id,
+            amount_crf,
+            'exchange_rub_to_crf',
+            f'Обмен {amount_rub:.2f} ₽ на CRF по курсу {rate:.4f}',
+        )
+        del user_states[user_id]
+        safe_send(
+            m.chat.id,
+            (
+                f"✅ Обмен выполнен! Вы получили {amount_crf:.2f} CRF за "
+                f"{amount_rub:.2f} ₽ (комиссия {commission:.2f} ₽)"
+            ),
+            reply_markup=exchange_kb(),
+        )
+
+    elif state == 'exchange_crf_to_rub':
+        try:
+            amount_crf = float(m.text.replace(',', '.'))
+        except Exception:
+            safe_send(m.chat.id, "❌ Введите число.")
+            return
+        if amount_crf <= 0:
+            safe_send(m.chat.id, "❌ Сумма должна быть > 0")
+            return
+        if get_balance_crf(user_id) < amount_crf:
+            safe_send(m.chat.id, f"❌ Недостаточно CRF. У вас {get_balance_crf(user_id):.2f}")
+            return
+        rate = get_crf_rate()
+        commission = amount_crf * (CONFIG.get('exchange_commission_percent', 10.0) / 100.0)
+        amount_rub = (amount_crf - commission) * rate
+        add_transaction_crf(
+            user_id,
+            -amount_crf,
+            'exchange_crf_to_rub',
+            f'Обмен {amount_crf:.2f} CRF на ₽ (комиссия {commission:.2f} CRF)',
+        )
+        add_transaction_crf(0, commission, 'exchange_commission_crf', f'Комиссия за обмен CRF→₽ от {user_id}')
+        c = get_cursor()
+        c.execute('UPDATE stats SET value = value + ? WHERE key = "commission_exchange_crf"', (commission,))
+        db.commit()
+        add_transaction_rub(
+            user_id,
+            amount_rub,
+            'exchange_crf_to_rub',
+            f'Обмен {amount_crf:.2f} CRF на ₽ по курсу {rate:.4f}',
+        )
+        del user_states[user_id]
+        safe_send(
+            m.chat.id,
+            (
+                f"✅ Обмен выполнен! Вы получили {amount_rub:.2f} ₽ за "
+                f"{amount_crf:.2f} CRF (комиссия {commission:.2f} CRF)"
+            ),
+            reply_markup=exchange_kb(),
+        )
+
+    elif state == 'withdraw_amount':
+        try:
+            amount = float(m.text.replace(',', '.'))
+        except Exception:
+            safe_send(m.chat.id, "❌ Введите число.")
+            return
+        balance = user_states[user_id].get('balance', 0)
+        if amount <= 0 or amount > balance:
+            safe_send(m.chat.id, f"❌ Сумма должна быть от 0 до {balance:.2f}")
+            return
+        level, _ = get_user_level(user_id)
+        if level < CONFIG.get('withdraw_min_level', 2):
+            del user_states[user_id]
+            safe_send(
+                m.chat.id,
+                f"❌ Вывод доступен с {CONFIG.get('withdraw_min_level', 2)} уровня.",
+                reply_markup=main_menu(user_id),
+            )
+            return
+        fee_percent = get_level_bonuses(level)['withdraw_fee']
+        fee = amount * (fee_percent / 100.0)
+        net = amount - fee
+        if net <= 0:
+            safe_send(m.chat.id, f"❌ Сумма слишком мала после комиссии ({fee_percent:.1f}%).")
+            return
+        user_states[user_id] = {'state': 'withdraw_wallet', 'amount': amount, 'net': net, 'fee': fee}
+        safe_send(
+            m.chat.id,
+            f"💳 Введите номер карты или кошелёк Юмани для вывода {net:.2f} ₽ (комиссия {fee:.2f} ₽):",
+            reply_markup=cancel_kb(),
+        )
+
+    elif state == 'withdraw_wallet':
+        wallet = m.text.strip()
+        if not wallet:
+            safe_send(m.chat.id, "❌ Введите реквизиты.")
+            return
+        amount = user_states[user_id].get('amount')
+        net = user_states[user_id].get('net')
+        add_transaction_rub(user_id, -amount, 'withdraw_hold', f'Заявка на вывод {amount:.2f} ₽')
+        c = get_cursor()
+        c.execute('INSERT INTO withdraws (chatId, amount, wallet) VALUES (?, ?, ?)', (user_id, net, wallet))
+        db.commit()
+        for admin in ADMIN_IDS:
+            try:
+                bot.send_message(
+                    admin,
+                    f"📛 Новая заявка на вывод от {user_id}: {net:.2f} ₽ на {wallet}",
+                    parse_mode='HTML',
+                )
+            except Exception:
+                pass
+        del user_states[user_id]
+        safe_send(
+            m.chat.id,
+            f"✅ Заявка на вывод {net:.2f} ₽ создана. Ожидайте обработки.",
+            reply_markup=cabinet_kb(),
+        )
+
+    elif state == 'deposit_amount':
+        try:
+            amount = float(m.text.replace(',', '.'))
+        except Exception:
+            safe_send(m.chat.id, "❌ Введите число.")
+            return
+        if amount <= 0:
+            safe_send(m.chat.id, "❌ Сумма должна быть > 0")
+            return
+        c = get_cursor()
+        c.execute('INSERT INTO deposits (chatId, amount) VALUES (?, ?)', (user_id, amount))
+        db.commit()
+        deposit_id = c.lastrowid
+        for admin in ADMIN_IDS:
+            try:
+                bot.send_message(
+                    admin,
+                    f"📥 Новая заявка на пополнение #{deposit_id} от {user_id}: {amount:.2f} ₽",
+                    parse_mode='HTML',
+                )
+            except Exception:
+                pass
+        del user_states[user_id]
+        safe_send(
+            m.chat.id,
+            f"✅ Заявка на пополнение #{deposit_id} на {amount:.2f} ₽ создана. Ожидайте подтверждения администратором.",
+            reply_markup=cabinet_kb(),
+        )
+
+    elif state == 'support':
+        msg_text = m.text
+        c = get_cursor()
+        c.execute('INSERT INTO tickets (user_id, message, status) VALUES (?, ?, "open")', (user_id, msg_text))
+        db.commit()
+        ticket_id = c.lastrowid
+        for admin in ADMIN_IDS:
+            try:
+                bot.send_message(
+                    admin,
+                    (
+                        f"🆘 Новый тикет #{ticket_id} от {user_id}:\n{msg_text}\n\n"
+                        f"Ответьте командой: /reply_ticket {ticket_id} <текст>"
+                    ),
+                    parse_mode='HTML',
+                )
+            except Exception:
+                pass
+        del user_states[user_id]
+        safe_send(m.chat.id, '✅ Сообщение отправлено администраторам.', reply_markup=main_menu(user_id))
+
+    elif state == 'duel_amount':
+        try:
+            amount = float(m.text.strip().replace(',', '.').replace(' ', ''))
+        except Exception:
+            safe_send(m.chat.id, '❌ Введите число.', reply_markup=cancel_kb())
+            return
+        if amount < 1:
+            safe_send(m.chat.id, '❌ Минимальная ставка 1 ₽', reply_markup=cancel_kb())
+            return
+        mode = user_states[user_id].get('mode', 'classic')
+        try:
+            success, msg = create_duel(user_id, amount, mode)
+        except Exception as e:
+            print(f'Ошибка create_duel для {user_id}: {e}')
+            success, msg = False, '❌ Не удалось создать дуэль. Попробуйте позже.'
+        del user_states[user_id]
+        safe_send(m.chat.id, msg, reply_markup=duel_kb())
+        return
+
+    elif state == 'promo_mailing_users':
+        try:
+            count = int(m.text)
+        except Exception:
+            safe_send(m.chat.id, "❌ Введите целое число.")
+            return
+        c = get_cursor()
+        c.execute('SELECT COUNT(*) FROM users')
+        total = c.fetchone()[0] or 0
+        if count < 0 or count > total:
+            safe_send(m.chat.id, f"❌ Количество должно быть от 0 до {total}")
+            return
+        price = (
+            count * CONFIG.get('promo_mailing_price_per_user', 0.3)
+            if count > 0
+            else total * CONFIG.get('promo_mailing_price_per_user', 0.3)
+        )
+        if get_balance_rub(user_id) < price:
+            del user_states[user_id]
+            safe_send(m.chat.id, f"❌ Недостаточно средств. Нужно {price:.2f} ₽. Пополните баланс.")
+            return
+        user_states[user_id] = {'state': 'promo_mailing_msg', 'count': count, 'price': price}
+        safe_send(
+            m.chat.id,
+            (
+                "📨 Отправьте сообщение для рассылки (текст или перешлите сообщение).\n"
+                f"Будет отправлено {count if count > 0 else total} пользователям. "
+                f"Стоимость: {price:.2f} ₽."
+            ),
+            reply_markup=cancel_kb(),
+        )
+
+    elif state == 'promo_mailing_msg':
+        count = user_states[user_id].get('count', 0)
+        price = user_states[user_id].get('price', 0)
+        add_transaction_rub(user_id, -price, 'promo_mailing', f'Рассылка сообщения {count} пользователям')
+        add_transaction_rub(0, price, 'promo_mailing_income', f'Доход от рассылки от {user_id}')
+        c = get_cursor()
+        c.execute(
+            '''
+            INSERT INTO promotions (user_id, type, message, price, status)
+            VALUES (?, 'mailing', ?, ?, 'active')
+            ''',
+            (user_id, m.text, price),
+        )
+        db.commit()
+        threading.Thread(target=send_mailing, args=(m.text, count, m.chat.id, user_id)).start()
+        del user_states[user_id]
+        safe_send(
+            m.chat.id,
+            (
+                f"✅ Рассылка запущена! Стоимость: {price:.2f} ₽. "
+                f"Сообщение будет доставлено {count if count > 0 else 'всем'} пользователям."
+            ),
+        )
+
+    elif state == 'promo_channel_channel':
+        channel = clean_channel(m.text)
+        if not channel:
+            safe_send(m.chat.id, "❌ Некорректный username")
+            return
+        user_states[user_id] = {'state': 'promo_channel_hours', 'channel': channel}
+        safe_send(m.chat.id, "⏱️ Введите количество часов рекламы (цена 50₽/час):", reply_markup=cancel_kb())
+
+    elif state == 'promo_channel_hours':
+        try:
+            hours = int(m.text)
+        except Exception:
+            safe_send(m.chat.id, "❌ Введите целое число часов.")
+            return
+        if hours <= 0:
+            safe_send(m.chat.id, "❌ Количество часов должно быть > 0")
+            return
+        price = hours * CONFIG.get('promo_channel_price_per_hour', 50.0)
+        channel = user_states[user_id].get('channel')
+        if get_balance_rub(user_id) < price:
+            del user_states[user_id]
+            safe_send(m.chat.id, f"❌ Недостаточно средств. Нужно {price:.2f} ₽.")
+            return
+        add_transaction_rub(user_id, -price, 'promo_channel', f'Реклама канала @{channel} на {hours} ч')
+        add_transaction_rub(0, price, 'promo_channel_income', f'Доход от рекламы канала @{channel}')
+        start_time = datetime.now()
+        end_time = start_time + timedelta(hours=hours)
+        c = get_cursor()
+        c.execute(
+            '''
+            INSERT INTO promotions (user_id, type, channel, price, hours, start_time, end_time, status)
+            VALUES (?, 'channel', ?, ?, ?, ?, ?, 'active')
+            ''',
+            (user_id, channel, price, hours, start_time.isoformat(), end_time.isoformat()),
+        )
+        db.commit()
+        c.execute('INSERT OR IGNORE INTO promo_subscriptions (user_id, channel) VALUES (?, ?)', (user_id, channel))
+        db.commit()
+        del user_states[user_id]
+        safe_send(
+            m.chat.id,
+            (
+                f"✅ Реклама канала @{channel} запущена на {hours} часов! "
+                f"Стоимость: {price:.2f} ₽. Канал добавлен в обязательные подписки для всех пользователей."
+            ),
+        )
+
+    elif state == 'invest_amount':
+        try:
+            amount = float(m.text.replace(',', '.'))
+        except Exception:
+            safe_send(m.chat.id, "❌ Введите число.")
+            return
+        if amount < CONFIG.get('investment_min', 10):
+            safe_send(m.chat.id, f"❌ Минимальная сумма: {CONFIG.get('investment_min', 10)} CRF")
+            return
+        days = user_states[user_id].get('days', 1)
+        success, msg = create_investment_crf(user_id, amount, days)
+        del user_states[user_id]
+        safe_send(m.chat.id, msg, reply_markup=invest_kb())
+
+    elif state == 'stake_amount':
+        try:
+            amount = float(m.text.replace(',', '.'))
+        except Exception:
+            safe_send(m.chat.id, "❌ Введите число.")
+            return
+        if amount < 1:
+            safe_send(m.chat.id, "❌ Минимальная сумма: 1 CRF")
+            return
+        days = user_states[user_id].get('days', 7)
+        success, msg = stake_crf(user_id, amount, days)
+        del user_states[user_id]
+        safe_send(m.chat.id, msg, reply_markup=invest_kb())
+
+    elif state == 'admin_replenish_update':
+        parts = [part.strip() for part in m.text.split(',')]
+        if len(parts) < 3:
+            safe_send(m.chat.id, "❌ Неверный формат. Используйте: карта, держатель, банк")
+            return
+        c = get_cursor()
+        c.execute('UPDATE settings SET value = ? WHERE key = "replenish_card"', (parts[0],))
+        c.execute('UPDATE settings SET value = ? WHERE key = "replenish_holder"', (parts[1],))
+        c.execute('UPDATE settings SET value = ? WHERE key = "replenish_bank"', (parts[2],))
+        db.commit()
+        del user_states[user_id]
+        safe_send(m.chat.id, "✅ Реквизиты пополнения обновлены!", reply_markup=admin_kb())
+
+    elif state == 'admin_task_edit_reward':
+        try:
+            new_reward = float(m.text.replace(',', '.'))
+        except Exception:
+            safe_send(m.chat.id, "❌ Введите число.")
+            return
+        if new_reward <= 0:
+            safe_send(m.chat.id, "❌ Награда должна быть > 0")
+            return
+        task_id = user_states[user_id].get('task_id')
+        c = get_cursor()
+        c.execute('UPDATE tasks SET reward = ? WHERE id = ?', (new_reward, task_id))
+        db.commit()
+        del user_states[user_id]
+        safe_send(
+            m.chat.id,
+            f"✅ Награда для задания #{task_id} изменена на {new_reward:.2f} CRF",
+            reply_markup=admin_kb(),
+        )
+
+    elif state == 'admin_balance_rub':
+        parts = m.text.split()
+        if len(parts) < 2:
+            safe_send(m.chat.id, "❌ Формат: <user_id> <сумма>")
+            return
+        try:
+            target = int(parts[0])
+            amount = float(parts[1])
+        except Exception:
+            safe_send(m.chat.id, "❌ Неверный формат")
+            return
+        if not get_user(target):
+            safe_send(m.chat.id, "❌ Пользователь не найден")
+            return
+        add_transaction_rub(target, amount, 'admin_balance', 'Админ изменил баланс ₽')
+        del user_states[user_id]
+        safe_send(
+            m.chat.id,
+            f"✅ Баланс ₽ пользователя {target} изменён на {amount:.2f}",
+            reply_markup=main_menu(user_id),
+        )
+
+    elif state == 'admin_balance_crf':
+        parts = m.text.split()
+        if len(parts) < 2:
+            safe_send(m.chat.id, "❌ Формат: <user_id> <сумма>")
+            return
+        try:
+            target = int(parts[0])
+            amount = float(parts[1])
+        except Exception:
+            safe_send(m.chat.id, "❌ Неверный формат")
+            return
+        if not get_user(target):
+            safe_send(m.chat.id, "❌ Пользователь не найден")
+            return
+        add_transaction_crf(target, amount, 'admin_balance_crf', 'Админ изменил баланс CRF')
+        del user_states[user_id]
+        safe_send(
+            m.chat.id,
+            f"✅ Баланс CRF пользователя {target} изменён на {amount:.2f}",
+            reply_markup=main_menu(user_id),
+        )
+
+    elif state == 'admin_crf_rate':
+        try:
+            new_rate = float(m.text.replace(',', '.'))
+        except Exception:
+            safe_send(m.chat.id, "❌ Введите число.")
+            return
+        if new_rate <= 0:
+            safe_send(m.chat.id, "❌ Курс должен быть > 0")
+            return
+        update_crf_rate(new_rate)
+        del user_states[user_id]
+        safe_send(
+            m.chat.id,
+            f"✅ Курс CRF обновлён: 1 CRF = {new_rate:.4f} ₽",
+            reply_markup=main_menu(user_id),
+        )
+
+    elif state == 'admin_transactions':
+        try:
+            target = int(m.text)
+        except Exception:
+            safe_send(m.chat.id, "❌ Введите ID")
+            return
+        user = get_user(target)
+        if not user:
+            del user_states[user_id]
+            safe_send(m.chat.id, "❌ Пользователь не найден")
+            return
+        c = get_cursor()
+        c.execute('SELECT * FROM transactions WHERE user_id = ? ORDER BY created_at DESC LIMIT 20', (target,))
+        rub = c.fetchall()
+        c.execute('SELECT * FROM crf_transactions WHERE user_id = ? ORDER BY created_at DESC LIMIT 20', (target,))
+        crf = c.fetchall()
+        text = f"📊 Транзакции пользователя {target}\n\n"
+        text += "💰 ₽:\n"
+        for row in rub:
+            sign = '+' if row['amount'] > 0 else ''
+            text += f"{row['type']}: {sign}{row['amount']:.2f} ₽ – {row['description']}\n"
+        text += "\n💎 CRF:\n"
+        for row in crf:
+            sign = '+' if row['amount'] > 0 else ''
+            text += f"{row['type']}: {sign}{row['amount']:.2f} CRF – {row['description']}\n"
+        del user_states[user_id]
+        safe_send(m.chat.id, text, parse_mode='HTML')
+
+    elif state == 'admin_give_level':
+        parts = m.text.split()
+        if len(parts) < 2:
+            safe_send(m.chat.id, "❌ Формат: <user_id> <уровень>")
+            return
+        try:
+            target = int(parts[0])
+            level = int(parts[1])
+        except Exception:
+            safe_send(m.chat.id, "❌ Неверный формат")
+            return
+        if not get_user(target):
+            safe_send(m.chat.id, "❌ Пользователь не найден")
+            return
+        if level < 1:
+            safe_send(m.chat.id, "❌ Уровень должен быть >= 1")
+            return
+        update_field(target, 'level', level)
+        update_field(target, 'exp', 0)
+        del user_states[user_id]
+        safe_send(
+            m.chat.id,
+            f"✅ Уровень пользователя {target} установлен на {level}, опыт сброшен",
+            reply_markup=main_menu(user_id),
+        )
+        safe_send(target, f"👑 Администратор установил ваш уровень: {level}")
+
+    elif state == 'admin_change_refs':
+        parts = m.text.split()
+        if len(parts) < 2:
+            safe_send(m.chat.id, "❌ Формат: <user_id> <реф. уровень>")
+            return
+        try:
+            target = int(parts[0])
+            ref_level = int(parts[1])
+        except Exception:
+            safe_send(m.chat.id, "❌ Неверный формат")
+            return
+        if not get_user(target):
+            safe_send(m.chat.id, "❌ Пользователь не найден")
+            return
+        if ref_level < 1 or ref_level > 3:
+            safe_send(m.chat.id, "❌ Реф. уровень должен быть от 1 до 3")
+            return
+        update_field(target, 'ref_level', ref_level)
+        del user_states[user_id]
+        safe_send(
+            m.chat.id,
+            f"✅ Реф. уровень пользователя {target} установлен на {ref_level}",
+            reply_markup=main_menu(user_id),
+        )
+        safe_send(target, f"👑 Администратор изменил ваш реферальный уровень: {ref_level}")
+
+    elif state == 'admin_seasons_create_name':
+        name = m.text.strip()
+        if not name:
+            safe_send(m.chat.id, "❌ Название не может быть пустым.")
+            return
+        user_states[user_id] = {'state': 'admin_seasons_create_prize', 'name': name}
+        safe_send(m.chat.id, "💰 Введите призовой фонд сезона (в ₽):", reply_markup=cancel_kb())
+
+    elif state == 'admin_seasons_create_prize':
+        try:
+            prize = float(m.text.replace(',', '.'))
+        except Exception:
+            safe_send(m.chat.id, "❌ Введите число.")
+            return
+        if prize < 0:
+            safe_send(m.chat.id, "❌ Сумма не может быть отрицательной.")
+            return
+        name = user_states[user_id].get('name')
+        season_id = create_season(name, prize)
+        del user_states[user_id]
+        safe_send(
+            m.chat.id,
+            f"✅ Сезон '{name}' создан! ID: {season_id}",
+            reply_markup=main_menu(user_id),
+        )
+
+    elif state == 'admin_task_subscribe_channel':
+        channel = clean_channel(m.text)
+        if not channel:
+            safe_send(m.chat.id, "❌ Некорректный username")
+            return
+        user_states[user_id] = {'state': 'admin_task_subscribe_reward', 'channel': channel}
+        safe_send(m.chat.id, f"💰 Введите награду в CRF за подписку на @{channel}:", reply_markup=cancel_kb())
+
+    elif state == 'admin_task_subscribe_reward':
+        try:
+            reward = float(m.text.replace(',', '.'))
+        except Exception:
+            safe_send(m.chat.id, "❌ Введите число.")
+            return
+        if reward <= 0:
+            safe_send(m.chat.id, "❌ Награда должна быть > 0")
+            return
+        channel = user_states[user_id].get('channel')
+        c = get_cursor()
+        c.execute('INSERT INTO tasks (channel, reward, active) VALUES (?, ?, 1)', (channel, reward))
+        db.commit()
+        del user_states[user_id]
+        safe_send(
+            m.chat.id,
+            f"✅ Задание создано! Подписка на @{channel} даёт {reward:.2f} CRF",
+            reply_markup=main_menu(user_id),
+        )
+
+    elif state == 'admin_broadcast':
+        try:
+            count = int(m.text)
+        except Exception:
+            safe_send(m.chat.id, "❌ Введите число.")
+            return
+        user_states[user_id] = {'state': 'admin_broadcast_msg', 'count': count}
+        safe_send(m.chat.id, "📨 Отправьте сообщение:")
+
+    elif state == 'admin_broadcast_msg':
+        count = user_states[user_id].get('count', 0)
+        c = get_cursor()
+        if count == 0:
+            c.execute('SELECT chatId FROM users')
+        else:
+            c.execute('SELECT chatId FROM users ORDER BY RANDOM() LIMIT ?', (count,))
+        rows = c.fetchall()
+        failed = 0
+        for row in rows:
+            try:
+                try:
+                    target_chat = row['chatId']
+                except Exception:
+                    target_chat = row[0]
+                bot.copy_message(target_chat, m.chat.id, m.message_id)
+                time.sleep(0.05)
+            except Exception:
+                failed += 1
+        del user_states[user_id]
+        safe_send(m.chat.id, f"✅ Рассылка завершена! Не доставлено: {failed}", reply_markup=main_menu(user_id))
+
+    elif state == 'mod_ban':
+        try:
+            target = int(m.text)
+        except Exception:
+            safe_send(m.chat.id, "❌ Введите ID")
+            return
+        if not get_user(target):
+            safe_send(m.chat.id, "❌ Пользователь не найден")
+            return
+        c = get_cursor()
+        c.execute(
+            'INSERT INTO moderator_requests (moderator_id, action_type, target_user_id, data) VALUES (?, ?, ?, ?)',
+            (user_id, 'ban', target, '{}'),
+        )
+        db.commit()
+        del user_states[user_id]
+        safe_send(
+            m.chat.id,
+            f"✅ Запрос на блокировку {target} отправлен администраторам.",
+            reply_markup=main_menu(user_id),
+        )
+
+    elif state == 'mod_unban':
+        try:
+            target = int(m.text)
+        except Exception:
+            safe_send(m.chat.id, "❌ Введите ID")
+            return
+        if not get_user(target):
+            safe_send(m.chat.id, "❌ Пользователь не найден")
+            return
+        c = get_cursor()
+        c.execute(
+            'INSERT INTO moderator_requests (moderator_id, action_type, target_user_id, data) VALUES (?, ?, ?, ?)',
+            (user_id, 'unban', target, '{}'),
+        )
+        db.commit()
+        del user_states[user_id]
+        safe_send(
+            m.chat.id,
+            f"✅ Запрос на разблокировку {target} отправлен администраторам.",
+            reply_markup=main_menu(user_id),
+        )
+
+    elif state == 'mod_balance_rub':
+        parts = m.text.split()
+        if len(parts) < 2:
+            safe_send(m.chat.id, "❌ Формат: <user_id> <сумма>")
+            return
+        try:
+            target = int(parts[0])
+            amount = float(parts[1])
+        except Exception:
+            safe_send(m.chat.id, "❌ Неверный формат")
+            return
+        if not get_user(target):
+            safe_send(m.chat.id, "❌ Пользователь не найден")
+            return
+        c = get_cursor()
+        c.execute(
+            'INSERT INTO moderator_requests (moderator_id, action_type, target_user_id, data) VALUES (?, ?, ?, ?)',
+            (user_id, 'balance_rub', target, json.dumps({'amount': amount})),
+        )
+        db.commit()
+        del user_states[user_id]
+        safe_send(
+            m.chat.id,
+            f"✅ Запрос на изменение баланса ₽ {target} на {amount:.2f} отправлен администраторам.",
+            reply_markup=main_menu(user_id),
+        )
+
+    elif state == 'mod_balance_crf':
+        parts = m.text.split()
+        if len(parts) < 2:
+            safe_send(m.chat.id, "❌ Формат: <user_id> <сумма>")
+            return
+        try:
+            target = int(parts[0])
+            amount = float(parts[1])
+        except Exception:
+            safe_send(m.chat.id, "❌ Неверный формат")
+            return
+        if not get_user(target):
+            safe_send(m.chat.id, "❌ Пользователь не найден")
+            return
+        c = get_cursor()
+        c.execute(
+            'INSERT INTO moderator_requests (moderator_id, action_type, target_user_id, data) VALUES (?, ?, ?, ?)',
+            (user_id, 'balance_crf', target, json.dumps({'amount': amount})),
+        )
+        db.commit()
+        del user_states[user_id]
+        safe_send(
+            m.chat.id,
+            f"✅ Запрос на изменение баланса CRF {target} на {amount:.2f} отправлен администраторам.",
+            reply_markup=main_menu(user_id),
+        )
+
+    elif state == 'mod_level':
+        parts = m.text.split()
+        if len(parts) < 2:
+            safe_send(m.chat.id, "❌ Формат: <user_id> <уровень>")
+            return
+        try:
+            target = int(parts[0])
+            level = int(parts[1])
+        except Exception:
+            safe_send(m.chat.id, "❌ Неверный формат")
+            return
+        if not get_user(target):
+            safe_send(m.chat.id, "❌ Пользователь не найден")
+            return
+        if level < 1:
+            safe_send(m.chat.id, "❌ Уровень должен быть >= 1")
+            return
+        c = get_cursor()
+        c.execute(
+            'INSERT INTO moderator_requests (moderator_id, action_type, target_user_id, data) VALUES (?, ?, ?, ?)',
+            (user_id, 'change_level', target, json.dumps({'level': level})),
+        )
+        db.commit()
+        del user_states[user_id]
+        safe_send(
+            m.chat.id,
+            f"✅ Запрос на изменение уровня {target} на {level} отправлен администраторам.",
+            reply_markup=main_menu(user_id),
+        )
+
+    elif state == 'mod_vip':
+        parts = m.text.split()
+        if len(parts) < 2:
+            safe_send(m.chat.id, "❌ Формат: <user_id> <дни>")
+            return
+        try:
+            target = int(parts[0])
+            days = int(parts[1])
+        except Exception:
+            safe_send(m.chat.id, "❌ Неверный формат")
+            return
+        if not get_user(target):
+            safe_send(m.chat.id, "❌ Пользователь не найден")
+            return
+        if days < 1:
+            safe_send(m.chat.id, "❌ Дней должно быть >= 1")
+            return
+        c = get_cursor()
+        c.execute(
+            'INSERT INTO moderator_requests (moderator_id, action_type, target_user_id, data) VALUES (?, ?, ?, ?)',
+            (user_id, 'give_vip', target, json.dumps({'days': days})),
+        )
+        db.commit()
+        del user_states[user_id]
+        safe_send(
+            m.chat.id,
+            f"✅ Запрос на выдачу VIP на {days} дней пользователю {target} отправлен администраторам.",
+            reply_markup=main_menu(user_id),
+        )
+
+    elif state == 'mod_cancel_withdraw':
+        try:
+            withdraw_id = int(m.text)
+        except Exception:
+            safe_send(m.chat.id, "❌ Введите ID заявки")
+            return
+        c = get_cursor()
+        c.execute('SELECT * FROM withdraws WHERE id = ? AND status = 0', (withdraw_id,))
+        row = c.fetchone()
+        if not row:
+            safe_send(m.chat.id, "❌ Заявка не найдена или уже обработана")
+            return
+        add_transaction_rub(row['chatId'], row['amount'], 'withdraw_cancel', f'Отмена заявки модератором #{withdraw_id}')
+        c.execute('UPDATE withdraws SET status = 2 WHERE id = ?', (withdraw_id,))
+        db.commit()
+        del user_states[user_id]
+        safe_send(
+            m.chat.id,
+            f"✅ Заявка #{withdraw_id} отменена, средства возвращены.",
+            reply_markup=main_menu(user_id),
+        )
+
+    else:
+        del user_states[user_id]
+        safe_send(m.chat.id, '✅ Отменено.', reply_markup=main_menu(user_id))
+
+
 @bot.message_handler(func=lambda m: m.text == '👤 Кабинет')
 def cabinet_btn(m):
     user_id = m.from_user.id
@@ -1818,6 +2636,8 @@ def exchange_crf_to_rub_btn(m):
 @bot.message_handler(func=lambda m: m.text in ('🔙 Назад', '⬅️ Назад'))
 def back_btn(m):
     user_id = m.from_user.id
+    if user_id in user_states:
+        del user_states[user_id]
     safe_send(m.chat.id, "Главное меню", reply_markup=main_menu(user_id))
 
 # -------- ДУЭЛИ --------
@@ -1832,17 +2652,37 @@ def duel_menu_btn(m):
         return
     safe_send(m.chat.id, "⚔️ ДУЭЛИ\n\nВыберите режим или действие:", reply_markup=duel_kb())
 
+def _start_duel_amount_prompt(m, mode):
+    user_id = m.from_user.id
+    access, msg = check_duel_access(user_id)
+    if not access:
+        safe_send(m.chat.id, msg, reply_markup=duel_kb())
+        return
+    limit_ok, limit_msg = check_duel_limit(user_id)
+    if not limit_ok:
+        safe_send(m.chat.id, limit_msg, reply_markup=duel_kb())
+        return
+    existing = get_user_waiting_duel(user_id)
+    if existing:
+        safe_send(
+            m.chat.id,
+            (
+                f"❌ У вас уже есть дуэль #{existing['id']} в ожидании ({existing['amount']:.2f} ₽). "
+                "Откройте «📋 Активные дуэли» → «Отменить мою дуэль»."
+            ),
+            reply_markup=duel_kb(),
+        )
+        return
+    user_states[user_id] = {'state': 'duel_amount', 'mode': mode}
+    safe_send(m.chat.id, "💰 Введите сумму ставки (в ₽):", reply_markup=cancel_kb())
+
 @bot.message_handler(func=lambda m: m.text == '🎲 Классическая')
 def duel_classic_btn(m):
-    user_id = m.from_user.id
-    user_states[user_id] = {'state': 'duel_amount', 'mode': 'classic'}
-    safe_send(m.chat.id, "💰 Введите сумму ставки (в ₽):", reply_markup=cancel_kb())
+    _start_duel_amount_prompt(m, 'classic')
 
 @bot.message_handler(func=lambda m: m.text == '✊ КНБ')
 def duel_rps_btn(m):
-    user_id = m.from_user.id
-    user_states[user_id] = {'state': 'duel_amount', 'mode': 'rps'}
-    safe_send(m.chat.id, "💰 Введите сумму ставки (в ₽):", reply_markup=cancel_kb())
+    _start_duel_amount_prompt(m, 'rps')
 
 @bot.message_handler(func=lambda m: m.text == '📋 Активные дуэли')
 def duel_list_btn(m):
@@ -2926,813 +3766,6 @@ def callback_handler(call):
     safe_answer(call.id)
 
 
-@bot.message_handler(func=lambda m: m.from_user.id in user_states)
-def handle_states(m):
-    user_id = m.from_user.id
-    if user_id not in user_states:
-        return
-    state = user_states[user_id].get('state')
-
-    if m.text == '❌ Отменить':
-        del user_states[user_id]
-        safe_send(m.chat.id, '✅ Отменено.', reply_markup=main_menu(user_id))
-        return
-
-    if state == 'verification':
-        code = m.text.strip()
-        saved_code = user_states[user_id].get('code')
-        saved_time = user_states[user_id].get('time')
-        if saved_time and datetime.now() - saved_time > timedelta(minutes=10):
-            del user_states[user_id]
-            safe_send(m.chat.id, '❌ Код истёк. Начните заново.', reply_markup=main_menu(user_id))
-        elif code == saved_code:
-            update_field(user_id, 'is_verified', 1)
-            del user_states[user_id]
-            safe_send(m.chat.id, '✅ ВЕРИФИКАЦИЯ ПРОЙДЕНА!', reply_markup=main_menu(user_id))
-        else:
-            safe_send(m.chat.id, '❌ Неверный код. Попробуйте снова.', reply_markup=cancel_kb())
-
-    elif state == 'exchange_rub_to_crf':
-        try:
-            amount_rub = float(m.text.replace(',', '.'))
-        except Exception:
-            safe_send(m.chat.id, "❌ Введите число.")
-            return
-        if amount_rub <= 0:
-            safe_send(m.chat.id, "❌ Сумма должна быть > 0")
-            return
-        if get_balance_rub(user_id) < amount_rub:
-            safe_send(m.chat.id, f"❌ Недостаточно ₽. У вас {get_balance_rub(user_id):.2f}")
-            return
-        rate = get_crf_rate()
-        commission = amount_rub * (CONFIG.get('exchange_commission_percent', 10.0) / 100.0)
-        amount_crf = (amount_rub - commission) / rate
-        add_transaction_rub(
-            user_id,
-            -amount_rub,
-            'exchange_rub_to_crf',
-            f'Обмен {amount_rub:.2f} ₽ на CRF (комиссия {commission:.2f} ₽)',
-        )
-        add_transaction_rub(0, commission, 'exchange_commission_rub', f'Комиссия за обмен ₽→CRF от {user_id}')
-        c = get_cursor()
-        c.execute('UPDATE stats SET value = value + ? WHERE key = "commission_exchange_rub"', (commission,))
-        db.commit()
-        add_transaction_crf(
-            user_id,
-            amount_crf,
-            'exchange_rub_to_crf',
-            f'Обмен {amount_rub:.2f} ₽ на CRF по курсу {rate:.4f}',
-        )
-        del user_states[user_id]
-        safe_send(
-            m.chat.id,
-            (
-                f"✅ Обмен выполнен! Вы получили {amount_crf:.2f} CRF за "
-                f"{amount_rub:.2f} ₽ (комиссия {commission:.2f} ₽)"
-            ),
-            reply_markup=exchange_kb(),
-        )
-
-    elif state == 'exchange_crf_to_rub':
-        try:
-            amount_crf = float(m.text.replace(',', '.'))
-        except Exception:
-            safe_send(m.chat.id, "❌ Введите число.")
-            return
-        if amount_crf <= 0:
-            safe_send(m.chat.id, "❌ Сумма должна быть > 0")
-            return
-        if get_balance_crf(user_id) < amount_crf:
-            safe_send(m.chat.id, f"❌ Недостаточно CRF. У вас {get_balance_crf(user_id):.2f}")
-            return
-        rate = get_crf_rate()
-        commission = amount_crf * (CONFIG.get('exchange_commission_percent', 10.0) / 100.0)
-        amount_rub = (amount_crf - commission) * rate
-        add_transaction_crf(
-            user_id,
-            -amount_crf,
-            'exchange_crf_to_rub',
-            f'Обмен {amount_crf:.2f} CRF на ₽ (комиссия {commission:.2f} CRF)',
-        )
-        add_transaction_crf(0, commission, 'exchange_commission_crf', f'Комиссия за обмен CRF→₽ от {user_id}')
-        c = get_cursor()
-        c.execute('UPDATE stats SET value = value + ? WHERE key = "commission_exchange_crf"', (commission,))
-        db.commit()
-        add_transaction_rub(
-            user_id,
-            amount_rub,
-            'exchange_crf_to_rub',
-            f'Обмен {amount_crf:.2f} CRF на ₽ по курсу {rate:.4f}',
-        )
-        del user_states[user_id]
-        safe_send(
-            m.chat.id,
-            (
-                f"✅ Обмен выполнен! Вы получили {amount_rub:.2f} ₽ за "
-                f"{amount_crf:.2f} CRF (комиссия {commission:.2f} CRF)"
-            ),
-            reply_markup=exchange_kb(),
-        )
-
-    elif state == 'withdraw_amount':
-        try:
-            amount = float(m.text.replace(',', '.'))
-        except Exception:
-            safe_send(m.chat.id, "❌ Введите число.")
-            return
-        balance = user_states[user_id].get('balance', 0)
-        if amount <= 0 or amount > balance:
-            safe_send(m.chat.id, f"❌ Сумма должна быть от 0 до {balance:.2f}")
-            return
-        level, _ = get_user_level(user_id)
-        if level < CONFIG.get('withdraw_min_level', 2):
-            del user_states[user_id]
-            safe_send(
-                m.chat.id,
-                f"❌ Вывод доступен с {CONFIG.get('withdraw_min_level', 2)} уровня.",
-                reply_markup=main_menu(user_id),
-            )
-            return
-        fee_percent = get_level_bonuses(level)['withdraw_fee']
-        fee = amount * (fee_percent / 100.0)
-        net = amount - fee
-        if net <= 0:
-            safe_send(m.chat.id, f"❌ Сумма слишком мала после комиссии ({fee_percent:.1f}%).")
-            return
-        user_states[user_id] = {'state': 'withdraw_wallet', 'amount': amount, 'net': net, 'fee': fee}
-        safe_send(
-            m.chat.id,
-            f"💳 Введите номер карты или кошелёк Юмани для вывода {net:.2f} ₽ (комиссия {fee:.2f} ₽):",
-            reply_markup=cancel_kb(),
-        )
-
-    elif state == 'withdraw_wallet':
-        wallet = m.text.strip()
-        if not wallet:
-            safe_send(m.chat.id, "❌ Введите реквизиты.")
-            return
-        amount = user_states[user_id].get('amount')
-        net = user_states[user_id].get('net')
-        add_transaction_rub(user_id, -amount, 'withdraw_hold', f'Заявка на вывод {amount:.2f} ₽')
-        c = get_cursor()
-        c.execute('INSERT INTO withdraws (chatId, amount, wallet) VALUES (?, ?, ?)', (user_id, net, wallet))
-        db.commit()
-        for admin in ADMIN_IDS:
-            try:
-                bot.send_message(
-                    admin,
-                    f"📛 Новая заявка на вывод от {user_id}: {net:.2f} ₽ на {wallet}",
-                    parse_mode='HTML',
-                )
-            except Exception:
-                pass
-        del user_states[user_id]
-        safe_send(
-            m.chat.id,
-            f"✅ Заявка на вывод {net:.2f} ₽ создана. Ожидайте обработки.",
-            reply_markup=cabinet_kb(),
-        )
-
-    elif state == 'deposit_amount':
-        try:
-            amount = float(m.text.replace(',', '.'))
-        except Exception:
-            safe_send(m.chat.id, "❌ Введите число.")
-            return
-        if amount <= 0:
-            safe_send(m.chat.id, "❌ Сумма должна быть > 0")
-            return
-        c = get_cursor()
-        c.execute('INSERT INTO deposits (chatId, amount) VALUES (?, ?)', (user_id, amount))
-        db.commit()
-        deposit_id = c.lastrowid
-        for admin in ADMIN_IDS:
-            try:
-                bot.send_message(
-                    admin,
-                    f"📥 Новая заявка на пополнение #{deposit_id} от {user_id}: {amount:.2f} ₽",
-                    parse_mode='HTML',
-                )
-            except Exception:
-                pass
-        del user_states[user_id]
-        safe_send(
-            m.chat.id,
-            f"✅ Заявка на пополнение #{deposit_id} на {amount:.2f} ₽ создана. Ожидайте подтверждения администратором.",
-            reply_markup=cabinet_kb(),
-        )
-
-    elif state == 'support':
-        msg_text = m.text
-        c = get_cursor()
-        c.execute('INSERT INTO tickets (user_id, message, status) VALUES (?, ?, "open")', (user_id, msg_text))
-        db.commit()
-        ticket_id = c.lastrowid
-        for admin in ADMIN_IDS:
-            try:
-                bot.send_message(
-                    admin,
-                    (
-                        f"🆘 Новый тикет #{ticket_id} от {user_id}:\n{msg_text}\n\n"
-                        f"Ответьте командой: /reply_ticket {ticket_id} <текст>"
-                    ),
-                    parse_mode='HTML',
-                )
-            except Exception:
-                pass
-        del user_states[user_id]
-        safe_send(m.chat.id, '✅ Сообщение отправлено администраторам.', reply_markup=main_menu(user_id))
-
-    elif state == 'duel_amount':
-        try:
-            amount = float(m.text.replace(',', '.'))
-        except Exception:
-            safe_send(m.chat.id, '❌ Введите число.')
-            return
-        if amount < 1:
-            safe_send(m.chat.id, '❌ Минимальная ставка 1 ₽')
-            return
-        mode = user_states[user_id].get('mode', 'classic')
-        success, msg = create_duel(user_id, amount, mode)
-        del user_states[user_id]
-        safe_send(m.chat.id, msg, reply_markup=duel_kb())
-
-    elif state == 'promo_mailing_users':
-        try:
-            count = int(m.text)
-        except Exception:
-            safe_send(m.chat.id, "❌ Введите целое число.")
-            return
-        c = get_cursor()
-        c.execute('SELECT COUNT(*) FROM users')
-        total = c.fetchone()[0] or 0
-        if count < 0 or count > total:
-            safe_send(m.chat.id, f"❌ Количество должно быть от 0 до {total}")
-            return
-        price = (
-            count * CONFIG.get('promo_mailing_price_per_user', 0.3)
-            if count > 0
-            else total * CONFIG.get('promo_mailing_price_per_user', 0.3)
-        )
-        if get_balance_rub(user_id) < price:
-            del user_states[user_id]
-            safe_send(m.chat.id, f"❌ Недостаточно средств. Нужно {price:.2f} ₽. Пополните баланс.")
-            return
-        user_states[user_id] = {'state': 'promo_mailing_msg', 'count': count, 'price': price}
-        safe_send(
-            m.chat.id,
-            (
-                "📨 Отправьте сообщение для рассылки (текст или перешлите сообщение).\n"
-                f"Будет отправлено {count if count > 0 else total} пользователям. "
-                f"Стоимость: {price:.2f} ₽."
-            ),
-            reply_markup=cancel_kb(),
-        )
-
-    elif state == 'promo_mailing_msg':
-        count = user_states[user_id].get('count', 0)
-        price = user_states[user_id].get('price', 0)
-        add_transaction_rub(user_id, -price, 'promo_mailing', f'Рассылка сообщения {count} пользователям')
-        add_transaction_rub(0, price, 'promo_mailing_income', f'Доход от рассылки от {user_id}')
-        c = get_cursor()
-        c.execute(
-            '''
-            INSERT INTO promotions (user_id, type, message, price, status)
-            VALUES (?, 'mailing', ?, ?, 'active')
-            ''',
-            (user_id, m.text, price),
-        )
-        db.commit()
-        threading.Thread(target=send_mailing, args=(m.text, count, m.chat.id, user_id)).start()
-        del user_states[user_id]
-        safe_send(
-            m.chat.id,
-            (
-                f"✅ Рассылка запущена! Стоимость: {price:.2f} ₽. "
-                f"Сообщение будет доставлено {count if count > 0 else 'всем'} пользователям."
-            ),
-        )
-
-    elif state == 'promo_channel_channel':
-        channel = clean_channel(m.text)
-        if not channel:
-            safe_send(m.chat.id, "❌ Некорректный username")
-            return
-        user_states[user_id] = {'state': 'promo_channel_hours', 'channel': channel}
-        safe_send(m.chat.id, "⏱️ Введите количество часов рекламы (цена 50₽/час):", reply_markup=cancel_kb())
-
-    elif state == 'promo_channel_hours':
-        try:
-            hours = int(m.text)
-        except Exception:
-            safe_send(m.chat.id, "❌ Введите целое число часов.")
-            return
-        if hours <= 0:
-            safe_send(m.chat.id, "❌ Количество часов должно быть > 0")
-            return
-        price = hours * CONFIG.get('promo_channel_price_per_hour', 50.0)
-        channel = user_states[user_id].get('channel')
-        if get_balance_rub(user_id) < price:
-            del user_states[user_id]
-            safe_send(m.chat.id, f"❌ Недостаточно средств. Нужно {price:.2f} ₽.")
-            return
-        add_transaction_rub(user_id, -price, 'promo_channel', f'Реклама канала @{channel} на {hours} ч')
-        add_transaction_rub(0, price, 'promo_channel_income', f'Доход от рекламы канала @{channel}')
-        start_time = datetime.now()
-        end_time = start_time + timedelta(hours=hours)
-        c = get_cursor()
-        c.execute(
-            '''
-            INSERT INTO promotions (user_id, type, channel, price, hours, start_time, end_time, status)
-            VALUES (?, 'channel', ?, ?, ?, ?, ?, 'active')
-            ''',
-            (user_id, channel, price, hours, start_time.isoformat(), end_time.isoformat()),
-        )
-        db.commit()
-        c.execute('INSERT OR IGNORE INTO promo_subscriptions (user_id, channel) VALUES (?, ?)', (user_id, channel))
-        db.commit()
-        del user_states[user_id]
-        safe_send(
-            m.chat.id,
-            (
-                f"✅ Реклама канала @{channel} запущена на {hours} часов! "
-                f"Стоимость: {price:.2f} ₽. Канал добавлен в обязательные подписки для всех пользователей."
-            ),
-        )
-
-    elif state == 'invest_amount':
-        try:
-            amount = float(m.text.replace(',', '.'))
-        except Exception:
-            safe_send(m.chat.id, "❌ Введите число.")
-            return
-        if amount < CONFIG.get('investment_min', 10):
-            safe_send(m.chat.id, f"❌ Минимальная сумма: {CONFIG.get('investment_min', 10)} CRF")
-            return
-        days = user_states[user_id].get('days', 1)
-        success, msg = create_investment_crf(user_id, amount, days)
-        del user_states[user_id]
-        safe_send(m.chat.id, msg, reply_markup=invest_kb())
-
-    elif state == 'stake_amount':
-        try:
-            amount = float(m.text.replace(',', '.'))
-        except Exception:
-            safe_send(m.chat.id, "❌ Введите число.")
-            return
-        if amount < 1:
-            safe_send(m.chat.id, "❌ Минимальная сумма: 1 CRF")
-            return
-        days = user_states[user_id].get('days', 7)
-        success, msg = stake_crf(user_id, amount, days)
-        del user_states[user_id]
-        safe_send(m.chat.id, msg, reply_markup=invest_kb())
-
-    elif state == 'admin_replenish_update':
-        parts = [part.strip() for part in m.text.split(',')]
-        if len(parts) < 3:
-            safe_send(m.chat.id, "❌ Неверный формат. Используйте: карта, держатель, банк")
-            return
-        c = get_cursor()
-        c.execute('UPDATE settings SET value = ? WHERE key = "replenish_card"', (parts[0],))
-        c.execute('UPDATE settings SET value = ? WHERE key = "replenish_holder"', (parts[1],))
-        c.execute('UPDATE settings SET value = ? WHERE key = "replenish_bank"', (parts[2],))
-        db.commit()
-        del user_states[user_id]
-        safe_send(m.chat.id, "✅ Реквизиты пополнения обновлены!", reply_markup=admin_kb())
-
-    elif state == 'admin_task_edit_reward':
-        try:
-            new_reward = float(m.text.replace(',', '.'))
-        except Exception:
-            safe_send(m.chat.id, "❌ Введите число.")
-            return
-        if new_reward <= 0:
-            safe_send(m.chat.id, "❌ Награда должна быть > 0")
-            return
-        task_id = user_states[user_id].get('task_id')
-        c = get_cursor()
-        c.execute('UPDATE tasks SET reward = ? WHERE id = ?', (new_reward, task_id))
-        db.commit()
-        del user_states[user_id]
-        safe_send(
-            m.chat.id,
-            f"✅ Награда для задания #{task_id} изменена на {new_reward:.2f} CRF",
-            reply_markup=admin_kb(),
-        )
-
-    elif state == 'admin_balance_rub':
-        parts = m.text.split()
-        if len(parts) < 2:
-            safe_send(m.chat.id, "❌ Формат: <user_id> <сумма>")
-            return
-        try:
-            target = int(parts[0])
-            amount = float(parts[1])
-        except Exception:
-            safe_send(m.chat.id, "❌ Неверный формат")
-            return
-        if not get_user(target):
-            safe_send(m.chat.id, "❌ Пользователь не найден")
-            return
-        add_transaction_rub(target, amount, 'admin_balance', 'Админ изменил баланс ₽')
-        del user_states[user_id]
-        safe_send(
-            m.chat.id,
-            f"✅ Баланс ₽ пользователя {target} изменён на {amount:.2f}",
-            reply_markup=main_menu(user_id),
-        )
-
-    elif state == 'admin_balance_crf':
-        parts = m.text.split()
-        if len(parts) < 2:
-            safe_send(m.chat.id, "❌ Формат: <user_id> <сумма>")
-            return
-        try:
-            target = int(parts[0])
-            amount = float(parts[1])
-        except Exception:
-            safe_send(m.chat.id, "❌ Неверный формат")
-            return
-        if not get_user(target):
-            safe_send(m.chat.id, "❌ Пользователь не найден")
-            return
-        add_transaction_crf(target, amount, 'admin_balance_crf', 'Админ изменил баланс CRF')
-        del user_states[user_id]
-        safe_send(
-            m.chat.id,
-            f"✅ Баланс CRF пользователя {target} изменён на {amount:.2f}",
-            reply_markup=main_menu(user_id),
-        )
-
-    elif state == 'admin_crf_rate':
-        try:
-            new_rate = float(m.text.replace(',', '.'))
-        except Exception:
-            safe_send(m.chat.id, "❌ Введите число.")
-            return
-        if new_rate <= 0:
-            safe_send(m.chat.id, "❌ Курс должен быть > 0")
-            return
-        update_crf_rate(new_rate)
-        del user_states[user_id]
-        safe_send(
-            m.chat.id,
-            f"✅ Курс CRF обновлён: 1 CRF = {new_rate:.4f} ₽",
-            reply_markup=main_menu(user_id),
-        )
-
-    elif state == 'admin_transactions':
-        try:
-            target = int(m.text)
-        except Exception:
-            safe_send(m.chat.id, "❌ Введите ID")
-            return
-        user = get_user(target)
-        if not user:
-            del user_states[user_id]
-            safe_send(m.chat.id, "❌ Пользователь не найден")
-            return
-        c = get_cursor()
-        c.execute('SELECT * FROM transactions WHERE user_id = ? ORDER BY created_at DESC LIMIT 20', (target,))
-        rub = c.fetchall()
-        c.execute('SELECT * FROM crf_transactions WHERE user_id = ? ORDER BY created_at DESC LIMIT 20', (target,))
-        crf = c.fetchall()
-        text = f"📊 Транзакции пользователя {target}\n\n"
-        text += "💰 ₽:\n"
-        for row in rub:
-            sign = '+' if row['amount'] > 0 else ''
-            text += f"{row['type']}: {sign}{row['amount']:.2f} ₽ – {row['description']}\n"
-        text += "\n💎 CRF:\n"
-        for row in crf:
-            sign = '+' if row['amount'] > 0 else ''
-            text += f"{row['type']}: {sign}{row['amount']:.2f} CRF – {row['description']}\n"
-        del user_states[user_id]
-        safe_send(m.chat.id, text, parse_mode='HTML')
-
-    elif state == 'admin_give_level':
-        parts = m.text.split()
-        if len(parts) < 2:
-            safe_send(m.chat.id, "❌ Формат: <user_id> <уровень>")
-            return
-        try:
-            target = int(parts[0])
-            level = int(parts[1])
-        except Exception:
-            safe_send(m.chat.id, "❌ Неверный формат")
-            return
-        if not get_user(target):
-            safe_send(m.chat.id, "❌ Пользователь не найден")
-            return
-        if level < 1:
-            safe_send(m.chat.id, "❌ Уровень должен быть >= 1")
-            return
-        update_field(target, 'level', level)
-        update_field(target, 'exp', 0)
-        del user_states[user_id]
-        safe_send(
-            m.chat.id,
-            f"✅ Уровень пользователя {target} установлен на {level}, опыт сброшен",
-            reply_markup=main_menu(user_id),
-        )
-        safe_send(target, f"👑 Администратор установил ваш уровень: {level}")
-
-    elif state == 'admin_change_refs':
-        parts = m.text.split()
-        if len(parts) < 2:
-            safe_send(m.chat.id, "❌ Формат: <user_id> <реф. уровень>")
-            return
-        try:
-            target = int(parts[0])
-            ref_level = int(parts[1])
-        except Exception:
-            safe_send(m.chat.id, "❌ Неверный формат")
-            return
-        if not get_user(target):
-            safe_send(m.chat.id, "❌ Пользователь не найден")
-            return
-        if ref_level < 1 or ref_level > 3:
-            safe_send(m.chat.id, "❌ Реф. уровень должен быть от 1 до 3")
-            return
-        update_field(target, 'ref_level', ref_level)
-        del user_states[user_id]
-        safe_send(
-            m.chat.id,
-            f"✅ Реф. уровень пользователя {target} установлен на {ref_level}",
-            reply_markup=main_menu(user_id),
-        )
-        safe_send(target, f"👑 Администратор изменил ваш реферальный уровень: {ref_level}")
-
-    elif state == 'admin_seasons_create_name':
-        name = m.text.strip()
-        if not name:
-            safe_send(m.chat.id, "❌ Название не может быть пустым.")
-            return
-        user_states[user_id] = {'state': 'admin_seasons_create_prize', 'name': name}
-        safe_send(m.chat.id, "💰 Введите призовой фонд сезона (в ₽):", reply_markup=cancel_kb())
-
-    elif state == 'admin_seasons_create_prize':
-        try:
-            prize = float(m.text.replace(',', '.'))
-        except Exception:
-            safe_send(m.chat.id, "❌ Введите число.")
-            return
-        if prize < 0:
-            safe_send(m.chat.id, "❌ Сумма не может быть отрицательной.")
-            return
-        name = user_states[user_id].get('name')
-        season_id = create_season(name, prize)
-        del user_states[user_id]
-        safe_send(
-            m.chat.id,
-            f"✅ Сезон '{name}' создан! ID: {season_id}",
-            reply_markup=main_menu(user_id),
-        )
-
-    elif state == 'admin_task_subscribe_channel':
-        channel = clean_channel(m.text)
-        if not channel:
-            safe_send(m.chat.id, "❌ Некорректный username")
-            return
-        user_states[user_id] = {'state': 'admin_task_subscribe_reward', 'channel': channel}
-        safe_send(m.chat.id, f"💰 Введите награду в CRF за подписку на @{channel}:", reply_markup=cancel_kb())
-
-    elif state == 'admin_task_subscribe_reward':
-        try:
-            reward = float(m.text.replace(',', '.'))
-        except Exception:
-            safe_send(m.chat.id, "❌ Введите число.")
-            return
-        if reward <= 0:
-            safe_send(m.chat.id, "❌ Награда должна быть > 0")
-            return
-        channel = user_states[user_id].get('channel')
-        c = get_cursor()
-        c.execute('INSERT INTO tasks (channel, reward, active) VALUES (?, ?, 1)', (channel, reward))
-        db.commit()
-        del user_states[user_id]
-        safe_send(
-            m.chat.id,
-            f"✅ Задание создано! Подписка на @{channel} даёт {reward:.2f} CRF",
-            reply_markup=main_menu(user_id),
-        )
-
-    elif state == 'admin_broadcast':
-        try:
-            count = int(m.text)
-        except Exception:
-            safe_send(m.chat.id, "❌ Введите число.")
-            return
-        user_states[user_id] = {'state': 'admin_broadcast_msg', 'count': count}
-        safe_send(m.chat.id, "📨 Отправьте сообщение:")
-
-    elif state == 'admin_broadcast_msg':
-        count = user_states[user_id].get('count', 0)
-        c = get_cursor()
-        if count == 0:
-            c.execute('SELECT chatId FROM users')
-        else:
-            c.execute('SELECT chatId FROM users ORDER BY RANDOM() LIMIT ?', (count,))
-        rows = c.fetchall()
-        failed = 0
-        for row in rows:
-            try:
-                try:
-                    target_chat = row['chatId']
-                except Exception:
-                    target_chat = row[0]
-                bot.copy_message(target_chat, m.chat.id, m.message_id)
-                time.sleep(0.05)
-            except Exception:
-                failed += 1
-        del user_states[user_id]
-        safe_send(m.chat.id, f"✅ Рассылка завершена! Не доставлено: {failed}", reply_markup=main_menu(user_id))
-
-    elif state == 'mod_ban':
-        try:
-            target = int(m.text)
-        except Exception:
-            safe_send(m.chat.id, "❌ Введите ID")
-            return
-        if not get_user(target):
-            safe_send(m.chat.id, "❌ Пользователь не найден")
-            return
-        c = get_cursor()
-        c.execute(
-            'INSERT INTO moderator_requests (moderator_id, action_type, target_user_id, data) VALUES (?, ?, ?, ?)',
-            (user_id, 'ban', target, '{}'),
-        )
-        db.commit()
-        del user_states[user_id]
-        safe_send(
-            m.chat.id,
-            f"✅ Запрос на блокировку {target} отправлен администраторам.",
-            reply_markup=main_menu(user_id),
-        )
-
-    elif state == 'mod_unban':
-        try:
-            target = int(m.text)
-        except Exception:
-            safe_send(m.chat.id, "❌ Введите ID")
-            return
-        if not get_user(target):
-            safe_send(m.chat.id, "❌ Пользователь не найден")
-            return
-        c = get_cursor()
-        c.execute(
-            'INSERT INTO moderator_requests (moderator_id, action_type, target_user_id, data) VALUES (?, ?, ?, ?)',
-            (user_id, 'unban', target, '{}'),
-        )
-        db.commit()
-        del user_states[user_id]
-        safe_send(
-            m.chat.id,
-            f"✅ Запрос на разблокировку {target} отправлен администраторам.",
-            reply_markup=main_menu(user_id),
-        )
-
-    elif state == 'mod_balance_rub':
-        parts = m.text.split()
-        if len(parts) < 2:
-            safe_send(m.chat.id, "❌ Формат: <user_id> <сумма>")
-            return
-        try:
-            target = int(parts[0])
-            amount = float(parts[1])
-        except Exception:
-            safe_send(m.chat.id, "❌ Неверный формат")
-            return
-        if not get_user(target):
-            safe_send(m.chat.id, "❌ Пользователь не найден")
-            return
-        c = get_cursor()
-        c.execute(
-            'INSERT INTO moderator_requests (moderator_id, action_type, target_user_id, data) VALUES (?, ?, ?, ?)',
-            (user_id, 'balance_rub', target, json.dumps({'amount': amount})),
-        )
-        db.commit()
-        del user_states[user_id]
-        safe_send(
-            m.chat.id,
-            f"✅ Запрос на изменение баланса ₽ {target} на {amount:.2f} отправлен администраторам.",
-            reply_markup=main_menu(user_id),
-        )
-
-    elif state == 'mod_balance_crf':
-        parts = m.text.split()
-        if len(parts) < 2:
-            safe_send(m.chat.id, "❌ Формат: <user_id> <сумма>")
-            return
-        try:
-            target = int(parts[0])
-            amount = float(parts[1])
-        except Exception:
-            safe_send(m.chat.id, "❌ Неверный формат")
-            return
-        if not get_user(target):
-            safe_send(m.chat.id, "❌ Пользователь не найден")
-            return
-        c = get_cursor()
-        c.execute(
-            'INSERT INTO moderator_requests (moderator_id, action_type, target_user_id, data) VALUES (?, ?, ?, ?)',
-            (user_id, 'balance_crf', target, json.dumps({'amount': amount})),
-        )
-        db.commit()
-        del user_states[user_id]
-        safe_send(
-            m.chat.id,
-            f"✅ Запрос на изменение баланса CRF {target} на {amount:.2f} отправлен администраторам.",
-            reply_markup=main_menu(user_id),
-        )
-
-    elif state == 'mod_level':
-        parts = m.text.split()
-        if len(parts) < 2:
-            safe_send(m.chat.id, "❌ Формат: <user_id> <уровень>")
-            return
-        try:
-            target = int(parts[0])
-            level = int(parts[1])
-        except Exception:
-            safe_send(m.chat.id, "❌ Неверный формат")
-            return
-        if not get_user(target):
-            safe_send(m.chat.id, "❌ Пользователь не найден")
-            return
-        if level < 1:
-            safe_send(m.chat.id, "❌ Уровень должен быть >= 1")
-            return
-        c = get_cursor()
-        c.execute(
-            'INSERT INTO moderator_requests (moderator_id, action_type, target_user_id, data) VALUES (?, ?, ?, ?)',
-            (user_id, 'change_level', target, json.dumps({'level': level})),
-        )
-        db.commit()
-        del user_states[user_id]
-        safe_send(
-            m.chat.id,
-            f"✅ Запрос на изменение уровня {target} на {level} отправлен администраторам.",
-            reply_markup=main_menu(user_id),
-        )
-
-    elif state == 'mod_vip':
-        parts = m.text.split()
-        if len(parts) < 2:
-            safe_send(m.chat.id, "❌ Формат: <user_id> <дни>")
-            return
-        try:
-            target = int(parts[0])
-            days = int(parts[1])
-        except Exception:
-            safe_send(m.chat.id, "❌ Неверный формат")
-            return
-        if not get_user(target):
-            safe_send(m.chat.id, "❌ Пользователь не найден")
-            return
-        if days < 1:
-            safe_send(m.chat.id, "❌ Дней должно быть >= 1")
-            return
-        c = get_cursor()
-        c.execute(
-            'INSERT INTO moderator_requests (moderator_id, action_type, target_user_id, data) VALUES (?, ?, ?, ?)',
-            (user_id, 'give_vip', target, json.dumps({'days': days})),
-        )
-        db.commit()
-        del user_states[user_id]
-        safe_send(
-            m.chat.id,
-            f"✅ Запрос на выдачу VIP на {days} дней пользователю {target} отправлен администраторам.",
-            reply_markup=main_menu(user_id),
-        )
-
-    elif state == 'mod_cancel_withdraw':
-        try:
-            withdraw_id = int(m.text)
-        except Exception:
-            safe_send(m.chat.id, "❌ Введите ID заявки")
-            return
-        c = get_cursor()
-        c.execute('SELECT * FROM withdraws WHERE id = ? AND status = 0', (withdraw_id,))
-        row = c.fetchone()
-        if not row:
-            safe_send(m.chat.id, "❌ Заявка не найдена или уже обработана")
-            return
-        add_transaction_rub(row['chatId'], row['amount'], 'withdraw_cancel', f'Отмена заявки модератором #{withdraw_id}')
-        c.execute('UPDATE withdraws SET status = 2 WHERE id = ?', (withdraw_id,))
-        db.commit()
-        del user_states[user_id]
-        safe_send(
-            m.chat.id,
-            f"✅ Заявка #{withdraw_id} отменена, средства возвращены.",
-            reply_markup=main_menu(user_id),
-        )
-
-    else:
-        del user_states[user_id]
-        safe_send(m.chat.id, '✅ Отменено.', reply_markup=main_menu(user_id))
-
-
 @bot.message_handler(func=lambda m: m.text == '💸 Вывести ₽')
 def withdraw_btn(m):
     user_id = m.from_user.id
@@ -3861,7 +3894,7 @@ def wheel_btn(m):
 
 
 if __name__ == '__main__':
-    print('🤖 CRYPTO COINREF BOT v123.7')
+    print('🤖 CRYPTO COINREF BOT v123.8')
     print(f'📂 База: {DB_PATH}')
     print(f'👑 Админы: {ADMIN_IDS}')
     try:

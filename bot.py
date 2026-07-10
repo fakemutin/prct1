@@ -1614,53 +1614,77 @@ def exchange_btn(m):
 def exchange_history_btn(m):
     user_id = m.from_user.id
     c = get_cursor()
-    c.execute('SELECT * FROM transactions WHERE user_id = ? ORDER BY created_at DESC', (user_id,))
+    c.execute(
+        '''
+        SELECT amount, type, description, created_at
+        FROM transactions
+        WHERE user_id = ?
+        ORDER BY created_at DESC
+        LIMIT 30
+        ''',
+        (user_id,),
+    )
     rub_tx = c.fetchall()
-    c.execute('SELECT * FROM crf_transactions WHERE user_id = ? ORDER BY created_at DESC', (user_id,))
+    c.execute(
+        '''
+        SELECT amount, type, description, created_at
+        FROM crf_transactions
+        WHERE user_id = ?
+        ORDER BY created_at DESC
+        LIMIT 30
+        ''',
+        (user_id,),
+    )
     crf_tx = c.fetchall()
+
+    if not rub_tx and not crf_tx:
+        safe_send(m.chat.id, "📊 История пуста — операций по бирже пока нет.", reply_markup=exchange_kb())
+        return
 
     total_rub_in = 0
     total_rub_out = 0
     total_crf_in = 0
     total_crf_out = 0
-
-    text = "📊 ИСТОРИЯ ОПЕРАЦИЙ (все)\n\n"
+    text = "📊 ИСТОРИЯ ОПЕРАЦИЙ\n\n"
 
     if rub_tx:
         text += "💰 РУБЛИ (₽):\n"
         for t in rub_tx:
             amount = t['amount']
-        if amount > 0:
-            total_rub_in += amount
-            sign = "+"
-        else:
-            total_rub_out += abs(amount)
-            sign = ""
-            text += f"{t['created_at'][:10]} {t['type']}: {sign}{amount:.2f} ₽ – {t['description']}\n"
-            text += "\n"
-        if crf_tx:
-            text += "💎 CRF:\n"
+            if amount > 0:
+                total_rub_in += amount
+                sign = "+"
+            else:
+                total_rub_out += abs(amount)
+                sign = ""
+            created = str(t['created_at'] or '')[:10]
+            desc = t['description'] or t['type'] or ''
+            text += f"• {created} {t['type']}: {sign}{amount:.2f} ₽ — {desc}\n"
+        text += "\n"
+
+    if crf_tx:
+        text += "💎 CRF:\n"
         for t in crf_tx:
             amount = t['amount']
-        if amount > 0:
-            total_crf_in += amount
-            sign = "+"
-        else:
-            total_crf_out += abs(amount)
-            sign = ""
-            text += f"{t['created_at'][:10]} {t['type']}: {sign}{amount:.2f} CRF – {t['description']}\n"
-            text += "\n"
+            if amount > 0:
+                total_crf_in += amount
+                sign = "+"
+            else:
+                total_crf_out += abs(amount)
+                sign = ""
+            created = str(t['created_at'] or '')[:10]
+            desc = t['description'] or t['type'] or ''
+            text += f"• {created} {t['type']}: {sign}{amount:.2f} CRF — {desc}\n"
+        text += "\n"
 
-        if not rub_tx and not crf_tx:
-            text += "Нет операций.\n"
-        else:
-            text += "📊 СВОДКА:\n"
-            text += f"💰 Всего получено ₽: {total_rub_in:.2f}\n"
-            text += f"💰 Всего потрачено ₽: {total_rub_out:.2f}\n"
-            text += f"💎 Всего получено CRF: {total_crf_in:.2f}\n"
-            text += f"💎 Всего потрачено CRF: {total_crf_out:.2f}\n"
-
-            safe_send(m.chat.id, text, parse_mode='HTML', reply_markup=exchange_kb())
+    text += (
+        "📊 СВОДКА:\n"
+        f"💰 Получено ₽: {total_rub_in:.2f} | Потрачено: {total_rub_out:.2f}\n"
+        f"💎 Получено CRF: {total_crf_in:.2f} | Потрачено: {total_crf_out:.2f}"
+    )
+    if len(text) > 4000:
+        text = text[:3990] + "\n…"
+    safe_send(m.chat.id, text, parse_mode='HTML', reply_markup=exchange_kb())
 
 @bot.message_handler(func=lambda m: m.text == '🔄 Обменять ₽→CRF')
 def exchange_rub_to_crf_btn(m):
@@ -3715,7 +3739,7 @@ def wheel_btn(m):
 
 
 if __name__ == '__main__':
-    print('🤖 CRYPTO COINREF BOT v123.5')
+    print('🤖 CRYPTO COINREF BOT v123.6')
     print(f'📂 База: {DB_PATH}')
     print(f'👑 Админы: {ADMIN_IDS}')
     try:

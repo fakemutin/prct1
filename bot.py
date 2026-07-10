@@ -1062,15 +1062,15 @@ def resolve_classic_duel(duel_id):
         update_task_progress(loser, 'duel_any')
     except Exception as e:
         print(f"Ошибка обновления заданий в дуэли: {e}")
-        if is_vip(winner) and random.random() < 0.15:
-            bonus_crf = round(random.uniform(0.10, 0.30), 2)
-            add_transaction_crf(winner, bonus_crf, 'vip_duel_bonus', f'VIP бонус за победу в дуэли')
-            safe_send(winner, f"👑 VIP бонус! Вы получили {bonus_crf:.2f} CRF за победу!")
-            win_rank, _ = get_rank(new_w)
-            lose_rank, _ = get_rank(new_l)
-            safe_send(winner, f"🎉 ПОБЕДА!\n\n💰 Выигрыш: {prize:.2f} ₽\n⭐ Рейтинг Elo: {elo_w} → {new_w} ({win_rank})\n🏆 Отлично сражались!")
-            safe_send(loser, f"😔 ПОРАЖЕНИЕ\n\n⭐ Рейтинг Elo: {elo_l} → {new_l} ({lose_rank})\n💪 В следующий раз повезёт!")
-            return True, f"✅ Дуэль #{duel_id} завершена, победитель {winner}"
+    if is_vip(winner) and random.random() < 0.15:
+        bonus_crf = round(random.uniform(0.10, 0.30), 2)
+        add_transaction_crf(winner, bonus_crf, 'vip_duel_bonus', f'VIP бонус за победу в дуэли')
+        safe_send(winner, f"👑 VIP бонус! Вы получили {bonus_crf:.2f} CRF за победу!")
+    win_rank, _ = get_rank(new_w)
+    lose_rank, _ = get_rank(new_l)
+    safe_send(winner, f"🎉 ПОБЕДА!\n\n💰 Выигрыш: {prize:.2f} ₽\n⭐ Рейтинг Elo: {elo_w} → {new_w} ({win_rank})\n🏆 Отлично сражались!")
+    safe_send(loser, f"😔 ПОРАЖЕНИЕ\n\n⭐ Рейтинг Elo: {elo_l} → {new_l} ({lose_rank})\n💪 В следующий раз повезёт!")
+    return True, f"✅ Дуэль #{duel_id} завершена, победитель {winner}"
 
 def resolve_rps_duel(duel_id):
     c = get_cursor()
@@ -1201,6 +1201,37 @@ def set_rps_choice(user_id, duel_id, choice):
 # ============================================================
 # 8. ЕЖЕДНЕВНЫЕ ЗАДАНИЯ (С КНОПКОЙ "ЗАБРАТЬ")
 # ============================================================
+def ensure_daily_tasks_for_today():
+    today = datetime.now().date().isoformat()
+    c = get_cursor()
+    c.execute("SELECT value FROM settings WHERE key = 'daily_tasks_generated_date'")
+    row = c.fetchone()
+    if row and row['value'] == today:
+        return False
+    generate_daily_tasks()
+    c.execute(
+        "INSERT OR REPLACE INTO settings (key, value) VALUES ('daily_tasks_generated_date', ?)",
+        (today,),
+    )
+    c.execute('DELETE FROM user_daily_progress')
+    c.execute('UPDATE users SET daily_tasks_date = NULL, daily_tasks_done = ""')
+    db.commit()
+    return True
+
+def ensure_user_tasks_initialized(user_id):
+    ensure_daily_tasks_for_today()
+    today = datetime.now().date().isoformat()
+    c = get_cursor()
+    c.execute('SELECT daily_tasks_date FROM users WHERE chatId = ?', (user_id,))
+    row = c.fetchone()
+    if not row or row['daily_tasks_date'] != today:
+        c.execute('DELETE FROM user_daily_progress WHERE user_id = ?', (user_id,))
+        c.execute(
+            'UPDATE users SET daily_tasks_date = ?, daily_tasks_done = "" WHERE chatId = ?',
+            (today, user_id),
+        )
+        db.commit()
+
 def generate_daily_tasks():
     c = get_cursor()
     c.execute('DELETE FROM daily_tasks')
@@ -1224,17 +1255,8 @@ def generate_daily_tasks():
         db.commit()
 
 def get_daily_tasks(user_id):
-    today = datetime.now().date().isoformat()
+    ensure_user_tasks_initialized(user_id)
     c = get_cursor()
-    c.execute('SELECT daily_tasks_date FROM users WHERE chatId = ?', (user_id,))
-    row = c.fetchone()
-    if not row or row[0] != today:
-        c.execute('SELECT COUNT(*) FROM daily_tasks')
-        if c.fetchone()[0] == 0:
-            generate_daily_tasks()
-        c.execute('DELETE FROM user_daily_progress WHERE user_id = ?', (user_id,))
-        c.execute('UPDATE users SET daily_tasks_date = ?, daily_tasks_done = "" WHERE chatId = ?', (today, user_id))
-        db.commit()
     c.execute('SELECT * FROM daily_tasks')
     tasks = c.fetchall()
     result = []
@@ -1258,14 +1280,12 @@ def get_daily_tasks(user_id):
     return result
 
 def update_task_progress(user_id, task_type, amount=1):
+    ensure_user_tasks_initialized(user_id)
     c = get_cursor()
-    today = datetime.now().date().isoformat()
-    c.execute('SELECT daily_tasks_date FROM users WHERE chatId = ?', (user_id,))
-    row = c.fetchone()
-    if not row or row[0] != today:
-        return
     c.execute('SELECT id FROM daily_tasks WHERE task_type = ?', (task_type,))
     tasks = c.fetchall()
+    if not tasks:
+        return
     for t in tasks:
         task_id = t['id']
         c.execute(
@@ -1276,18 +1296,23 @@ def update_task_progress(user_id, task_type, amount=1):
         if prog and prog['completed']:
             continue
         new_progress = (prog['progress'] if prog else 0) + amount
-        c.execute('SELECT target, reward_exp, reward_money FROM daily_tasks WHERE id = ?', (task_id,))
+        c.execute('SELECT target FROM daily_tasks WHERE id = ?', (task_id,))
         info = c.fetchone()
         if not info:
             continue
         completed = 1 if new_progress >= info['target'] else 0
         if completed:
-            safe_send(user_id, "✅ Задание выполнено! Нажмите кнопку 'Забрать награду' в списке заданий.")
+            safe_send(
+                user_id,
+                "✅ Задание выполнено! Откройте 📋 Задания и нажмите «Забрать награду».",
+            )
         c.execute('''
             INSERT INTO user_daily_progress (user_id, task_id, progress, completed, claimed)
             VALUES (?, ?, ?, ?, 0)
-            ON CONFLICT(user_id, task_id) DO UPDATE SET progress = ?, completed = ?, claimed = 0
-        ''', (user_id, task_id, new_progress, completed, new_progress, completed))
+            ON CONFLICT(user_id, task_id) DO UPDATE SET
+                progress = excluded.progress,
+                completed = excluded.completed
+        ''', (user_id, task_id, new_progress, completed))
     db.commit()
 
 def claim_daily_reward(user_id, task_id):
@@ -1882,15 +1907,33 @@ def start_cmd(message):
         safe_send(message.chat.id, "🚫 Аккаунт заблокирован!")
         return
     user = get_user(user_id)
+    referer_id = -1
+    args = (message.text or '').split()
+    if len(args) > 1 and args[1].isdigit():
+        referer_id = int(args[1])
     if not user:
         c = get_cursor()
-        c.execute('INSERT INTO users (chatId, firstName, username) VALUES (?, ?, ?)',
-                  (user_id, message.from_user.first_name or '', message.from_user.username or ''))
+        if referer_id > 0 and referer_id != user_id and get_user(referer_id):
+            c.execute(
+                'INSERT INTO users (chatId, firstName, username, referer) VALUES (?, ?, ?, ?)',
+                (user_id, message.from_user.first_name or '', message.from_user.username or '', referer_id),
+            )
+        else:
+            c.execute(
+                'INSERT INTO users (chatId, firstName, username) VALUES (?, ?, ?)',
+                (user_id, message.from_user.first_name or '', message.from_user.username or ''),
+            )
         db.commit()
         c.execute('INSERT INTO crf_balances (user_id, balance) VALUES (?, 0) ON CONFLICT(user_id) DO NOTHING', (user_id,))
         db.commit()
         c.execute('UPDATE stats SET value = value + 1 WHERE key = "total_users"')
         db.commit()
+        if referer_id > 0 and referer_id != user_id and get_user(referer_id):
+            ref_level = get_field(referer_id, 'ref_level', 1)
+            ref_bonus = CONFIG.get('referral_crf', {}).get(str(ref_level), 0.35)
+            add_transaction_crf(referer_id, ref_bonus, 'referral_bonus', f'Новый реферал {user_id}')
+            add_exp(referer_id, CONFIG.get('exp_per_referral', 10))
+            update_task_progress(referer_id, 'referrals', 1)
     if not is_admin(user_id) and not check_subscription(user_id):
         kb = InlineKeyboardMarkup()
         kb.add(InlineKeyboardButton('📢 Подписаться', url='https://t.me/COINREF_OFFICIAL'))
@@ -3599,6 +3642,7 @@ def wheel_btn(m):
     add_transaction_crf(user_id, reward, 'spin_win', 'Колесо удачи (выигрыш CRF)')
     add_exp(user_id, CONFIG.get('exp_per_spin', 3))
     update_field(user_id, 'lastSpin', today)
+    update_task_progress(user_id, 'spins', 1)
     safe_send(
         m.chat.id,
         f"🎲 Колесо удачи!\n\nВы выиграли {reward:.2f} CRF!\n+{CONFIG.get('exp_per_spin', 3)} опыта",
@@ -3607,7 +3651,7 @@ def wheel_btn(m):
 
 
 if __name__ == '__main__':
-    print('🤖 CRYPTO COINREF BOT v123.3')
+    print('🤖 CRYPTO COINREF BOT v123.4')
     print(f'📂 База: {DB_PATH}')
     print(f'👑 Админы: {ADMIN_IDS}')
     try:

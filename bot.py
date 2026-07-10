@@ -201,6 +201,119 @@ def migrate_legacy_schema():
     db.commit()
     print('✅ Миграция пользователей завершена')
 
+def migrate_duels_schema():
+    c = get_cursor()
+    c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='duels'")
+    if not c.fetchone():
+        return
+    c.execute('PRAGMA table_info(duels)')
+    col_names = {row[1] for row in c.fetchall()}
+
+    if 'creator_id' not in col_names and 'user_id' in col_names:
+        print('ℹ️ Миграция duels: user_id → creator_id')
+        c.execute('ALTER TABLE duels RENAME COLUMN user_id TO creator_id')
+        col_names.add('creator_id')
+
+    required_columns = {
+        'creator_id': 'INTEGER',
+        'opponent_id': 'INTEGER DEFAULT -1',
+        'amount': 'REAL DEFAULT 0',
+        'mode': "TEXT DEFAULT 'classic'",
+        'status': "TEXT DEFAULT 'waiting'",
+        'winner_id': 'INTEGER DEFAULT -1',
+        'created_at': 'TIMESTAMP',
+        'updated_at': 'TIMESTAMP',
+        'elo_creator': 'INTEGER DEFAULT 1200',
+        'elo_opponent': 'INTEGER DEFAULT 1200',
+        'creator_choice': 'TEXT',
+        'opponent_choice': 'TEXT',
+    }
+    for col, typedef in required_columns.items():
+        if col not in col_names:
+            print(f'ℹ️ Миграция duels: добавляем колонку {col}')
+            c.execute(f'ALTER TABLE duels ADD COLUMN {col} {typedef}')
+            col_names.add(col)
+
+    c.execute(
+        '''
+        UPDATE duels
+        SET opponent_id = -1
+        WHERE opponent_id IS NULL OR opponent_id = 0
+        '''
+    )
+    c.execute(
+        '''
+        UPDATE duels
+        SET status = 'waiting'
+        WHERE status IS NULL OR status = ''
+        '''
+    )
+    c.execute(
+        '''
+        UPDATE duels
+        SET mode = 'classic'
+        WHERE mode IS NULL OR mode = ''
+        '''
+    )
+    c.execute(
+        '''
+        UPDATE duels
+        SET updated_at = COALESCE(updated_at, created_at, CURRENT_TIMESTAMP)
+        WHERE updated_at IS NULL
+        '''
+    )
+    c.execute(
+        '''
+        UPDATE duels
+        SET created_at = COALESCE(created_at, CURRENT_TIMESTAMP)
+        WHERE created_at IS NULL
+        '''
+    )
+    c.execute(
+        '''
+        UPDATE duels
+        SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP
+        WHERE status = 'waiting'
+          AND creator_id IS NULL
+        '''
+    )
+    c.execute(
+        '''
+        SELECT creator_id, MAX(id) AS keep_id
+        FROM duels
+        WHERE status = 'waiting'
+          AND (opponent_id IS NULL OR opponent_id IN (-1, 0))
+          AND creator_id IS NOT NULL
+        GROUP BY creator_id
+        HAVING COUNT(*) > 1
+        '''
+    )
+    for row in c.fetchall():
+        c.execute(
+            '''
+            SELECT id, amount FROM duels
+            WHERE creator_id = ? AND status = 'waiting'
+              AND id != ?
+              AND (opponent_id IS NULL OR opponent_id IN (-1, 0))
+            ''',
+            (row['creator_id'], row['keep_id']),
+        )
+        for old in c.fetchall():
+            c.execute('UPDATE users SET balance = balance + ? WHERE chatId = ?', (old['amount'], row['creator_id']))
+            c.execute(
+                'INSERT INTO transactions (user_id, amount, type, description) VALUES (?,?,?,?)',
+                (row['creator_id'], old['amount'], 'duel_refund', f'Отмена дубля дуэли #{old["id"]}'),
+            )
+            c.execute(
+                "UPDATE duels SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                (old['id'],),
+            )
+    db.commit()
+    print('✅ Миграция таблицы duels завершена')
+
+def is_opponent_slot_free(opponent_id):
+    return opponent_id is None or opponent_id in (-1, 0)
+
 def init_db():
     c = get_cursor()
     # Все таблицы (как в предыдущей версии)
@@ -439,11 +552,7 @@ def init_db():
     for col in ['level','exp','elo_rating','ref_level','vip_until','daily_tasks_date','daily_tasks_done','duel_blocked_until','warnings','is_banned','verification_code','vip_active']:
         if col not in cols:
             c.execute(f'ALTER TABLE users ADD COLUMN {col}')
-    c.execute("PRAGMA table_info(duels)")
-    duel_cols = [row[1] for row in c.fetchall()]
-    for col in ['mode','creator_choice','opponent_choice','elo_creator','elo_opponent']:
-        if col not in duel_cols:
-            c.execute(f'ALTER TABLE duels ADD COLUMN {col}')
+    migrate_duels_schema()
     c.execute('SELECT COUNT(*) FROM crf_rate')
     if c.fetchone()[0] == 0:
         c.execute('INSERT INTO crf_rate (rate) VALUES (?)', (CONFIG.get('crf_initial_rate', 0.01),))
@@ -458,7 +567,7 @@ def init_db():
     db.commit()
     print(f"✅ База данных готова ({DB_PATH})")
 
-init_db()
+# init_db() вызывается после определения всех функций — см. конец файла
 
 # ============================================================
 # 3. БОТ И ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
@@ -470,6 +579,29 @@ except:
     botUsername = 'CRYPTO_COINREF_BOT'
 
 user_states = {}
+
+MENU_BUTTON_TEXTS = {
+    '👤 Кабинет', '💱 Биржа', '⚔️ Дуэль', '📈 Инвестиции', '📋 Задания', '👑 VIP',
+    '💰 Заработать', '🎁 Бонус', '🎲 Колесо удачи', '📅 Сезон', '📢 Продвижение', '🆘 Поддержка',
+    '👑 Админ-панель', '🛡️ Модератор-панель',
+    '🔄 Обменять ₽→CRF', '🔄 Обменять CRF→₽', '📊 История операций',
+    '🎲 Классическая', '✊ КНБ', '📋 Активные дуэли', '📊 Мои дуэли',
+    '📈 Создать инвестицию', '1 день (5%)', '3 дня (10%)', '7 дней (15%)',
+    '💎 Стейкинг', '14 дней (15%)', '30 дней (20%)', '7 дней (10%)',
+    '📊 Мои инвестиции', '📊 Мои стейки', '👑 Купить VIP за 100 ₽',
+    '📤 Поделиться ссылкой', '📨 Рассылка', '📢 Реклама канала',
+    '💸 Вывести ₽', '💳 Пополнить', '📊 История',
+    '🔙 Назад', '⬅️ Назад',
+}
+
+def should_handle_user_state(m):
+    user_id = m.from_user.id
+    if user_id not in user_states or not getattr(m, 'text', None):
+        return False
+    if m.text in MENU_BUTTON_TEXTS and m.text not in ('❌ Отменить',):
+        del user_states[user_id]
+        return False
+    return True
 
 def safe_send(chat_id, text, parse_mode=None, reply_markup=None):
     try:
@@ -983,6 +1115,8 @@ def get_season_stats():
     # 7. ДУЭЛИ (с обновлением статистики комиссии 8%)
     # ============================================================
 def check_duel_access(user_id):
+    if is_admin(user_id):
+        return True, ""
     level, _ = get_user_level(user_id)
     min_level = CONFIG.get('duel_min_level', 2)
     if level < min_level:
@@ -1031,13 +1165,27 @@ def create_duel(user_id, amount, mode='classic'):
             f"❌ У вас уже есть дуэль #{existing['id']} в ожидании ({existing['amount']:.2f} ₽). "
             "Откройте «📋 Активные дуэли» → «Отменить мою дуэль» или дождитесь соперника."
         )
+    if not get_user(user_id):
+        return False, '❌ Профиль не найден. Нажмите /start'
     add_transaction_rub(user_id, -amount, 'duel_hold', f'Создание дуэли')
     c = get_cursor()
-    c.execute('''
-    INSERT INTO duels (creator_id, amount, mode, status, elo_creator)
-    VALUES (?, ?, ?, 'waiting', (SELECT elo_rating FROM users WHERE chatId = ?))
-    ''', (user_id, amount, mode, user_id))
-    db.commit()
+    elo = get_field(user_id, 'elo_rating', 1200) or 1200
+    try:
+        c.execute(
+            '''
+            INSERT INTO duels (
+                creator_id, opponent_id, amount, mode, status,
+                elo_creator, created_at, updated_at
+            )
+            VALUES (?, -1, ?, ?, 'waiting', ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            ''',
+            (user_id, amount, mode, elo),
+        )
+        db.commit()
+    except Exception as e:
+        print(f'Ошибка INSERT duels: {e}')
+        add_transaction_rub(user_id, amount, 'duel_refund', 'Откат: ошибка создания дуэли')
+        return False, '❌ Ошибка базы данных при создании дуэли. Попробуйте снова.'
     duel_id = c.lastrowid
     return True, f"✅ Дуэль #{duel_id} создана! Ожидайте соперника."
 
@@ -1047,7 +1195,8 @@ def expire_stale_duels(max_age_minutes=60):
         '''
         SELECT id, creator_id, amount FROM duels
         WHERE status = 'waiting'
-          AND created_at < datetime('now', ?)
+          AND (opponent_id IS NULL OR opponent_id IN (-1, 0))
+          AND COALESCE(created_at, updated_at, CURRENT_TIMESTAMP) < datetime('now', ?)
         ''',
         (f'-{max_age_minutes} minutes',),
     )
@@ -1069,7 +1218,7 @@ def get_user_waiting_duel(user_id):
         '''
         SELECT * FROM duels
         WHERE creator_id = ? AND status = 'waiting'
-          AND (opponent_id IS NULL OR opponent_id = -1)
+          AND (opponent_id IS NULL OR opponent_id IN (-1, 0))
         ORDER BY id DESC LIMIT 1
         ''',
         (user_id,),
@@ -1087,7 +1236,7 @@ def cancel_duel(duel_id, by_user_id):
         '''
         UPDATE duels SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP
         WHERE id = ? AND status = 'waiting'
-          AND (opponent_id IS NULL OR opponent_id = -1)
+          AND (opponent_id IS NULL OR opponent_id IN (-1, 0))
         ''',
         (duel_id,),
     )
@@ -1104,7 +1253,7 @@ def accept_duel(opponent_id, duel_id):
         return False, "❌ Дуэль уже недоступна (завершена или отменена)."
     if duel['creator_id'] == opponent_id:
         return False, "❌ Нельзя принять свою дуэль."
-    if duel['opponent_id'] not in (None, -1):
+    if not is_opponent_slot_free(duel['opponent_id']):
         return False, "❌ Дуэль уже принята другим игроком."
     amount = duel['amount']
     if get_balance_rub(opponent_id) < amount:
@@ -1125,7 +1274,7 @@ def accept_duel(opponent_id, duel_id):
         SET opponent_id = ?, status = 'active', updated_at = CURRENT_TIMESTAMP,
             elo_opponent = (SELECT elo_rating FROM users WHERE chatId = ?)
         WHERE id = ? AND status = 'waiting'
-          AND (opponent_id IS NULL OR opponent_id = -1)
+          AND (opponent_id IS NULL OR opponent_id IN (-1, 0))
         ''',
         (opponent_id, opponent_id, duel_id),
     )
@@ -1200,18 +1349,25 @@ def resolve_rps_duel(duel_id):
     total = amount * 2
     commission = total * CONFIG.get('duel_commission', 8.0) / 100.0
     prize = total - commission
+    winner = None
     if c_choice == o_choice:
-        add_transaction_rub(creator, amount, 'duel_hold', 'Возврат (ничья)')
-        add_transaction_rub(opponent, amount, 'duel_hold', 'Возврат (ничья)')
-        winner = None
+        add_transaction_rub(creator, amount, 'duel_refund', 'Возврат (ничья RPS)')
+        add_transaction_rub(opponent, amount, 'duel_refund', 'Возврат (ничья RPS)')
         msg = "🤝 Ничья! Ставки возвращены."
-    elif rules[c_choice] == o_choice:
-        winner, loser = creator, opponent
+    elif rules.get(c_choice) == o_choice:
+        winner = creator
+        msg = f"🎉 Победитель: {creator}"
+    else:
+        winner = opponent
+        msg = f"🎉 Победитель: {opponent}"
+    if winner:
+        loser = opponent if winner == creator else creator
         add_transaction_rub(winner, prize, 'duel_win', f'Победа в дуэли #{duel_id}')
-        c.execute('INSERT INTO transactions (user_id, amount, type, description) VALUES (?,?,?,?)',
-        (0, commission, 'commission', f'Комиссия дуэли #{duel_id}'))
+        c.execute(
+            'INSERT INTO transactions (user_id, amount, type, description) VALUES (?,?,?,?)',
+            (0, commission, 'commission', f'Комиссия дуэли #{duel_id}'),
+        )
         c.execute('UPDATE stats SET value = value + ? WHERE key = "commission_duel_rub"', (commission,))
-        db.commit()
         elo_w = get_field(winner, 'elo_rating', 1200)
         elo_l = get_field(loser, 'elo_rating', 1200)
         k = CONFIG.get('elo_k_factor', 32)
@@ -1231,50 +1387,24 @@ def resolve_rps_duel(duel_id):
             print(f"Ошибка обновления заданий в RPS дуэли: {e}")
         if is_vip(winner) and random.random() < 0.15:
             bonus_crf = round(random.uniform(0.10, 0.30), 2)
-            add_transaction_crf(winner, bonus_crf, 'vip_duel_bonus', f'VIP бонус за победу в дуэли')
+            add_transaction_crf(winner, bonus_crf, 'vip_duel_bonus', 'VIP бонус за победу в дуэли')
             safe_send(winner, f"👑 VIP бонус! Вы получили {bonus_crf:.2f} CRF за победу!")
-            win_rank, _ = get_rank(new_w)
-            lose_rank, _ = get_rank(new_l)
-            safe_send(winner, f"🎉 ПОБЕДА (RPS)!\n\n💰 Выигрыш: {prize:.2f} ₽\n⭐ Рейтинг Elo: {elo_w} → {new_w} ({win_rank})")
-            safe_send(loser, f"😔 ПОРАЖЕНИЕ (RPS)\n\n⭐ Рейтинг Elo: {elo_l} → {new_l} ({lose_rank})")
-            msg = f"🎉 Победитель: {winner}"
-        else:
-            winner, loser = opponent, creator
-            add_transaction_rub(winner, prize, 'duel_win', f'Победа в дуэли #{duel_id}')
-            c.execute('INSERT INTO transactions (user_id, amount, type, description) VALUES (?,?,?,?)',
-            (0, commission, 'commission', f'Комиссия дуэли #{duel_id}'))
-            c.execute('UPDATE stats SET value = value + ? WHERE key = "commission_duel_rub"', (commission,))
-        db.commit()
-        elo_w = get_field(winner, 'elo_rating', 1200)
-        elo_l = get_field(loser, 'elo_rating', 1200)
-        k = CONFIG.get('elo_k_factor', 32)
-        expected_w = 1 / (1 + 10 ** ((elo_l - elo_w) / 400))
-        expected_l = 1 / (1 + 10 ** ((elo_w - elo_l) / 400))
-        new_w = int(elo_w + k * (1 - expected_w))
-        new_l = int(elo_l + k * (0 - expected_l))
-        update_field(winner, 'elo_rating', new_w)
-        update_field(loser, 'elo_rating', new_l)
-        add_exp(winner, CONFIG.get('exp_per_duel_win', 5))
-        add_exp(loser, 1)
-        try:
-            update_task_progress(winner, 'duel_wins')
-            update_task_progress(winner, 'duel_any')
-            update_task_progress(loser, 'duel_any')
-        except Exception as e:
-            print(f"Ошибка обновления заданий в RPS дуэли: {e}")
-        if is_vip(winner) and random.random() < 0.15:
-            bonus_crf = round(random.uniform(0.10, 0.30), 2)
-            add_transaction_crf(winner, bonus_crf, 'vip_duel_bonus', f'VIP бонус за победу в дуэли')
-            safe_send(winner, f"👑 VIP бонус! Вы получили {bonus_crf:.2f} CRF за победу!")
-            win_rank, _ = get_rank(new_w)
-            lose_rank, _ = get_rank(new_l)
-            safe_send(winner, f"🎉 ПОБЕДА (RPS)!\n\n💰 Выигрыш: {prize:.2f} ₽\n⭐ Рейтинг Elo: {elo_w} → {new_w} ({win_rank})")
-            safe_send(loser, f"😔 ПОРАЖЕНИЕ (RPS)\n\n⭐ Рейтинг Elo: {elo_l} → {new_l} ({lose_rank})")
-            msg = f"🎉 Победитель: {winner}"
-            c.execute('UPDATE duels SET status = "finished", winner_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
-            (winner or -1, duel_id))
-        db.commit()
-        return True, msg
+        win_rank, _ = get_rank(new_w)
+        lose_rank, _ = get_rank(new_l)
+        safe_send(
+            winner,
+            f"🎉 ПОБЕДА (RPS)!\n\n💰 Выигрыш: {prize:.2f} ₽\n⭐ Рейтинг Elo: {elo_w} → {new_w} ({win_rank})",
+        )
+        safe_send(
+            loser,
+            f"😔 ПОРАЖЕНИЕ (RPS)\n\n⭐ Рейтинг Elo: {elo_l} → {new_l} ({lose_rank})",
+        )
+    c.execute(
+        'UPDATE duels SET status = "finished", winner_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+        (winner if winner else -1, duel_id),
+    )
+    db.commit()
+    return True, msg
 
 def get_active_duels(exclude_user_id=None):
     expire_stale_duels()
@@ -1283,7 +1413,7 @@ def get_active_duels(exclude_user_id=None):
         '''
         SELECT * FROM duels
         WHERE status = 'waiting'
-          AND (opponent_id IS NULL OR opponent_id = -1)
+          AND (opponent_id IS NULL OR opponent_id IN (-1, 0))
         ORDER BY created_at ASC
         '''
     )
@@ -1670,7 +1800,7 @@ def moderator_kb():
     # ============================================================
     # 10. ОБРАБОТЧИКИ ТЕКСТОВЫХ КНОПОК МЕНЮ (ВСЕ ОТПРАВЛЯЮТ НОВЫЕ СООБЩЕНИЯ)
     # ============================================================
-@bot.message_handler(func=lambda m: m.from_user.id in user_states and getattr(m, 'text', None))
+@bot.message_handler(func=should_handle_user_state)
 def handle_states(m):
     user_id = m.from_user.id
     if user_id not in user_states:
@@ -1911,6 +2041,9 @@ def handle_states(m):
             print(f'Ошибка create_duel для {user_id}: {e}')
             success, msg = False, '❌ Не удалось создать дуэль. Попробуйте позже.'
         del user_states[user_id]
+        prefix = '✅' if success else ''
+        if not success and not str(msg).startswith('❌'):
+            msg = f'❌ {msg}'
         safe_send(m.chat.id, msg, reply_markup=duel_kb())
         return
 
@@ -2753,7 +2886,7 @@ def duel_my_btn(m):
         creator = get_user(d['creator_id'])
         cname = creator['firstName'] if creator else str(d['creator_id'])
         opponent = "ожидает"
-        if d['opponent_id'] not in (None, -1):
+        if not is_opponent_slot_free(d['opponent_id']):
             opp = get_user(d['opponent_id'])
             opponent = opp['firstName'] if opp else str(d['opponent_id'])
         text += f"{status} #{d['id']} | {d['mode'].capitalize()}\n"
@@ -3915,8 +4048,11 @@ def wheel_btn(m):
     )
 
 
+init_db()
+
+
 if __name__ == '__main__':
-    print('🤖 CRYPTO COINREF BOT v123.9')
+    print('🤖 CRYPTO COINREF BOT v124.0')
     print(f'📂 База: {DB_PATH}')
     print(f'👑 Админы: {ADMIN_IDS}')
     try:

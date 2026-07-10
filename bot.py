@@ -1232,30 +1232,30 @@ def get_daily_tasks(user_id):
         c.execute('SELECT COUNT(*) FROM daily_tasks')
         if c.fetchone()[0] == 0:
             generate_daily_tasks()
-            c.execute('DELETE FROM user_daily_progress WHERE user_id = ?', (user_id,))
-            c.execute('UPDATE users SET daily_tasks_date = ?, daily_tasks_done = "" WHERE chatId = ?', (today, user_id))
+        c.execute('DELETE FROM user_daily_progress WHERE user_id = ?', (user_id,))
+        c.execute('UPDATE users SET daily_tasks_date = ?, daily_tasks_done = "" WHERE chatId = ?', (today, user_id))
         db.commit()
-        c.execute('SELECT * FROM daily_tasks')
-        tasks = c.fetchall()
-        result = []
-        for t in tasks:
-            c.execute('SELECT progress, completed, claimed FROM user_daily_progress WHERE user_id = ? AND task_id = ?', (user_id, t['id']))
-            prog = c.fetchone()
-            progress = prog['progress'] if prog else 0
-            completed = prog['completed'] if prog else 0
-            claimed = prog['claimed'] if prog else 0
-            result.append({
+    c.execute('SELECT * FROM daily_tasks')
+    tasks = c.fetchall()
+    result = []
+    for t in tasks:
+        c.execute(
+            'SELECT progress, completed, claimed FROM user_daily_progress WHERE user_id = ? AND task_id = ?',
+            (user_id, t['id']),
+        )
+        prog = c.fetchone()
+        result.append({
             'id': t['id'],
             'text': t['task_text'],
             'type': t['task_type'],
             'target': t['target'],
             'reward_exp': t['reward_exp'],
             'reward_money': t['reward_money'],
-            'progress': progress,
-            'completed': completed,
-            'claimed': claimed
-            })
-            return result
+            'progress': prog['progress'] if prog else 0,
+            'completed': prog['completed'] if prog else 0,
+            'claimed': prog['claimed'] if prog else 0,
+        })
+    return result
 
 def update_task_progress(user_id, task_type, amount=1):
     c = get_cursor()
@@ -1268,26 +1268,27 @@ def update_task_progress(user_id, task_type, amount=1):
     tasks = c.fetchall()
     for t in tasks:
         task_id = t['id']
-        c.execute('SELECT progress, completed, claimed FROM user_daily_progress WHERE user_id = ? AND task_id = ?', (user_id, task_id))
+        c.execute(
+            'SELECT progress, completed, claimed FROM user_daily_progress WHERE user_id = ? AND task_id = ?',
+            (user_id, task_id),
+        )
         prog = c.fetchone()
         if prog and prog['completed']:
             continue
-            new_progress = (prog['progress'] if prog else 0) + amount
-            c.execute('SELECT target, reward_exp, reward_money FROM daily_tasks WHERE id = ?', (task_id,))
-            info = c.fetchone()
+        new_progress = (prog['progress'] if prog else 0) + amount
+        c.execute('SELECT target, reward_exp, reward_money FROM daily_tasks WHERE id = ?', (task_id,))
+        info = c.fetchone()
         if not info:
             continue
-        if new_progress >= info['target']:
-            completed = 1
-            safe_send(user_id, f"✅ Задание выполнено! Нажмите кнопку 'Забрать награду' в списке заданий.")
-        else:
-            completed = 0
-            c.execute('''
+        completed = 1 if new_progress >= info['target'] else 0
+        if completed:
+            safe_send(user_id, "✅ Задание выполнено! Нажмите кнопку 'Забрать награду' в списке заданий.")
+        c.execute('''
             INSERT INTO user_daily_progress (user_id, task_id, progress, completed, claimed)
             VALUES (?, ?, ?, ?, 0)
             ON CONFLICT(user_id, task_id) DO UPDATE SET progress = ?, completed = ?, claimed = 0
-            ''', (user_id, task_id, new_progress, completed, new_progress, completed))
-        db.commit()
+        ''', (user_id, task_id, new_progress, completed, new_progress, completed))
+    db.commit()
 
 def claim_daily_reward(user_id, task_id):
     c = get_cursor()
@@ -1318,7 +1319,7 @@ def main_menu(user_id):
         kb.row('👑 Админ-панель')
     elif is_moderator(user_id):
         kb.row('🛡️ Модератор-панель')
-        return kb
+    return kb
 
 def cancel_kb():
     kb = ReplyKeyboardMarkup(resize_keyboard=True)
@@ -1452,36 +1453,33 @@ def cabinet_btn(m):
     ref_level = get_field(user_id, 'ref_level', 1)
     bonuses = get_level_bonuses(level)
     vip = "👑 Да" if is_vip(user_id) else "❌ Нет"
-    if is_vip(user_id):
-        duel_limit_display = "🚫"
-    else:
-        duel_limit_display = f"{bonuses['duel_limit']}"
-        c = get_cursor()
-        c.execute('SELECT COUNT(*) FROM users WHERE referer = ?', (user_id,))
-        refs = c.fetchone()[0] or 0
+    duel_limit_display = "🚫" if is_vip(user_id) else f"{bonuses['duel_limit']}"
+    c = get_cursor()
+    c.execute('SELECT COUNT(*) FROM users WHERE referer = ?', (user_id,))
+    refs = c.fetchone()[0] or 0
 
-        text = f"""👤 ВАШ КАБИНЕТ
+    text = f"""👤 ВАШ КАБИНЕТ
 
-        📋 Информация:
-        • Имя: {user['firstName'] or 'Пользователь'}
-        • ID: {user_id}
-        • Уровень: {level} (опыт: {exp}/{required}, {progress}%)
-        • Реферальный уровень: {ref_level}
-        • Рейтинг Elo: {elo} ({emoji} {rank})
-        • VIP: {vip}
+📋 Информация:
+• Имя: {user['firstName'] or 'Пользователь'}
+• ID: {user_id}
+• Уровень: {level} (опыт: {exp}/{required}, {progress}%)
+• Реферальный уровень: {ref_level}
+• Рейтинг Elo: {elo} ({emoji} {rank})
+• VIP: {vip}
 
-        💳 Финансы:
-        • Баланс: {rub:.2f} ₽
-        • Баланс CRF: {crf:.2f}
+💳 Финансы:
+• Баланс: {rub:.2f} ₽
+• Баланс CRF: {crf:.2f}
 
-        🎯 Доступные функции:
-        • Лимит дуэлей: {duel_limit_display}
-        • Комиссия вывода: {bonuses['withdraw_fee']:.1f}%
+🎯 Доступные функции:
+• Лимит дуэлей: {duel_limit_display}
+• Комиссия вывода: {bonuses['withdraw_fee']:.1f}%
 
-        👥 Рефералов: {refs}
-        ━━━━━━━━━━━━━━━━━━━━━
-        💡 Используйте кнопки ниже"""
-        safe_send(m.chat.id, text, parse_mode='HTML', reply_markup=cabinet_kb())
+👥 Рефералов: {refs}
+━━━━━━━━━━━━━━━━━━━━━
+💡 Используйте кнопки ниже"""
+    safe_send(m.chat.id, text, parse_mode='HTML', reply_markup=cabinet_kb())
 
 @bot.message_handler(func=lambda m: m.text == '💱 Биржа')
 def exchange_btn(m):
@@ -1681,7 +1679,7 @@ def my_investments_btn(m):
     text = "📈 ВАШИ ИНВЕСТИЦИИ\n\n"
     for inv in invs:
         text += f"🔹 {inv['amount']:.2f} {inv['currency'].upper()} на {inv['term_days']} дн., прибыль: {inv['profit']:.2f} {inv['currency'].upper()}, до {datetime.fromisoformat(inv['end_date']).strftime('%d.%m %H:%M')}\n"
-        safe_send(m.chat.id, text, parse_mode='HTML', reply_markup=invest_kb())
+    safe_send(m.chat.id, text, parse_mode='HTML', reply_markup=invest_kb())
 
 @bot.message_handler(func=lambda m: m.text == '📊 Мои стейки')
 def my_stakes_btn(m):
@@ -1695,7 +1693,7 @@ def my_stakes_btn(m):
     text = "💎 ВАШИ СТЕЙКИ\n\n"
     for s in stakes:
         text += f"🔹 {s['amount']:.2f} CRF на {s['term_days']} дн., прибыль: {s['profit']:.2f} CRF, до {datetime.fromisoformat(s['end_date']).strftime('%d.%m %H:%M')}\n"
-        safe_send(m.chat.id, text, parse_mode='HTML', reply_markup=invest_kb())
+    safe_send(m.chat.id, text, parse_mode='HTML', reply_markup=invest_kb())
 
 # -------- VIP --------
 @bot.message_handler(func=lambda m: m.text == '👑 VIP')
@@ -1733,7 +1731,7 @@ def vip_menu_btn(m):
         Цена: 100 ₽.
 
         Нажмите кнопку ниже для покупки:"""
-        safe_send(m.chat.id, text, parse_mode='HTML', reply_markup=vip_kb())
+    safe_send(m.chat.id, text, parse_mode='HTML', reply_markup=vip_kb())
 
 @bot.message_handler(func=lambda m: m.text == '👑 Купить VIP за 100 ₽')
 def buy_vip_btn(m):
@@ -1757,21 +1755,21 @@ def earn_menu_btn(m):
         level, emoji = 2, "🥈"
     else:
         level, emoji = 1, "🥉"
-        text = f"""💰 РЕФЕРАЛЬНАЯ ПРОГРАММА
+    text = f"""💰 РЕФЕРАЛЬНАЯ ПРОГРАММА
 
-        {emoji} Уровень: {level}
-        👥 Приглашено: {count}
-        💎 За каждого реферала вы получаете CRF (зависит от вашего реферального уровня):
+{emoji} Уровень: {level}
+👥 Приглашено: {count}
+💎 За каждого реферала вы получаете CRF (зависит от вашего реферального уровня):
 
-        • 1 уровень: 0.35 CRF
-        • 2 уровень: 0.70 CRF
-        • 3 уровень: 1.15 CRF
+• 1 уровень: 0.35 CRF
+• 2 уровень: 0.70 CRF
+• 3 уровень: 1.15 CRF
 
-        Ваш текущий реферальный уровень: {ref_level}
-        Бонус за нового реферала: {ref_bonus:.2f} CRF
+Ваш текущий реферальный уровень: {ref_level}
+Бонус за нового реферала: {ref_bonus:.2f} CRF
 
-        👇 Поделитесь ссылкой и зарабатывайте!"""
-        safe_send(m.chat.id, text, parse_mode='HTML', reply_markup=referral_kb())
+👇 Поделитесь ссылкой и зарабатывайте!"""
+    safe_send(m.chat.id, text, parse_mode='HTML', reply_markup=referral_kb())
 
 @bot.message_handler(func=lambda m: m.text == '📤 Поделиться ссылкой')
 def share_ref_link(m):
@@ -2120,7 +2118,7 @@ def callback_handler(call):
                             callback_data=f'claim_task_{task["id"]}',
                         )
                     )
-            safe_send(chat_id, text, parse_mode='HTML', reply_markup=kb if kb.keyboard else None)
+            safe_send(chat_id, text, parse_mode='HTML', reply_markup=kb if kb.keyboard else main_menu(user_id))
         else:
             safe_send(chat_id, "📭 Сегодня заданий нет.")
         return
@@ -3559,7 +3557,7 @@ def tasks_btn(m):
                     callback_data=f'claim_task_{task["id"]}',
                 )
             )
-    safe_send(m.chat.id, text, parse_mode='HTML', reply_markup=kb if kb.keyboard else None)
+    safe_send(m.chat.id, text, parse_mode='HTML', reply_markup=kb if kb.keyboard else main_menu(user_id))
 
 
 @bot.message_handler(func=lambda m: m.text == '🎁 Бонус')
@@ -3609,7 +3607,7 @@ def wheel_btn(m):
 
 
 if __name__ == '__main__':
-    print('🤖 CRYPTO COINREF BOT v123.2')
+    print('🤖 CRYPTO COINREF BOT v123.3')
     print(f'📂 База: {DB_PATH}')
     print(f'👑 Админы: {ADMIN_IDS}')
     try:

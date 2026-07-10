@@ -812,6 +812,144 @@ def admin_mod_menu_kb():
     kb.add(InlineKeyboardButton('🔙 Назад', callback_data='admin_refresh'))
     return kb
 
+MODERATOR_REQUEST_ACTIONS = {
+    'ban': '🚫 Блокировка',
+    'unban': '✅ Разблокировка',
+    'balance_rub': '💰 Баланс ₽',
+    'balance_crf': '💎 Баланс CRF',
+    'change_level': '📈 Уровень',
+    'give_vip': '👑 VIP',
+}
+
+def format_moderator_request_text(row):
+    action = MODERATOR_REQUEST_ACTIONS.get(row['action_type'], row['action_type'])
+    mod = format_user_brief(row['moderator_id'])
+    target = format_user_brief(row['target_user_id'])
+    data = row['data'] or '{}'
+    return (
+        f"📋 <b>ЗАПРОС МОДЕРАТОРА</b> #{row['id']}\n\n"
+        f"👤 Модератор: {mod}\n"
+        f"🎯 Цель: {target}\n"
+        f"⚙️ Действие: {action}\n"
+        f"📝 Данные: <code>{data}</code>\n"
+        f"🕒 {row['created_at']}"
+    )
+
+def moderator_request_kb(req_id):
+    kb = InlineKeyboardMarkup(row_width=2)
+    kb.row(
+        InlineKeyboardButton('✅ Одобрить', callback_data=f'admin_modreq_accept_{req_id}'),
+        InlineKeyboardButton('❌ Отклонить', callback_data=f'admin_modreq_reject_{req_id}'),
+    )
+    return kb
+
+def get_pending_moderator_request(req_id):
+    c = get_cursor()
+    c.execute('SELECT * FROM moderator_requests WHERE id = ? AND status = ?', (req_id, 'pending'))
+    return c.fetchone()
+
+def create_moderator_request(moderator_id, action_type, target_user_id, data_dict=None):
+    data_str = json.dumps(data_dict or {})
+    c = get_cursor()
+    c.execute(
+        'INSERT INTO moderator_requests (moderator_id, action_type, target_user_id, data) VALUES (?, ?, ?, ?)',
+        (moderator_id, action_type, target_user_id, data_str),
+    )
+    db.commit()
+    req_id = c.lastrowid
+    notify_admins_moderator_request(req_id)
+    return req_id
+
+def notify_admins_moderator_request(req_id):
+    c = get_cursor()
+    c.execute('SELECT * FROM moderator_requests WHERE id = ?', (req_id,))
+    row = c.fetchone()
+    if not row:
+        return
+    text = format_moderator_request_text(row)
+    kb = moderator_request_kb(req_id)
+    for admin in ADMIN_IDS:
+        try:
+            bot.send_message(admin, text, parse_mode='HTML', reply_markup=kb)
+        except Exception:
+            pass
+
+def execute_moderator_request(req_id, admin_id):
+    row = get_pending_moderator_request(req_id)
+    if not row:
+        return False, '❌ Запрос не найден или уже обработан.'
+    target = row['target_user_id']
+    if not get_user(target):
+        return False, '❌ Целевой пользователь не найден.'
+    action = row['action_type']
+    try:
+        data = json.loads(row['data'] or '{}')
+    except Exception:
+        data = {}
+    mod_id = row['moderator_id']
+    desc_base = f'Запрос модератора #{mod_id} (одобрено админом #{admin_id})'
+
+    if action == 'ban':
+        update_field(target, 'is_banned', 1)
+        safe_send(target, '🚫 Ваш аккаунт заблокирован администрацией.')
+        result_msg = f'Пользователь {target} заблокирован.'
+    elif action == 'unban':
+        update_field(target, 'is_banned', 0)
+        safe_send(target, '✅ Ваш аккаунт разблокирован.')
+        result_msg = f'Пользователь {target} разблокирован.'
+    elif action == 'balance_rub':
+        amount = float(data.get('amount', 0))
+        add_transaction_rub(target, amount, 'mod_balance', desc_base)
+        result_msg = f'Баланс ₽ пользователя {target} изменён на {amount:.2f}.'
+    elif action == 'balance_crf':
+        amount = float(data.get('amount', 0))
+        add_transaction_crf(target, amount, 'mod_balance_crf', desc_base)
+        result_msg = f'Баланс CRF пользователя {target} изменён на {amount:.2f}.'
+    elif action == 'change_level':
+        level = int(data.get('level', 1))
+        if level < 1:
+            return False, '❌ Некорректный уровень в запросе.'
+        update_field(target, 'level', level)
+        update_field(target, 'exp', 0)
+        safe_send(target, f'👑 Ваш уровень изменён на {level} (запрос модератора одобрен).')
+        result_msg = f'Уровень пользователя {target} установлен на {level}.'
+    elif action == 'give_vip':
+        days = int(data.get('days', 0))
+        if days < 1:
+            return False, '❌ Некорректное количество дней VIP.'
+        grant_vip_days(target, days)
+        safe_send(target, f'👑 Вам выдан VIP на {days} дн. (запрос модератора одобрен).')
+        result_msg = f'VIP на {days} дн. выдан пользователю {target}.'
+    else:
+        return False, f'❌ Неизвестное действие: {action}'
+
+    c = get_cursor()
+    c.execute(
+        "UPDATE moderator_requests SET status = 'approved', resolved_at = CURRENT_TIMESTAMP WHERE id = ?",
+        (req_id,),
+    )
+    db.commit()
+    safe_send(mod_id, f'✅ Ваш запрос #{req_id} одобрен администратором.\n{result_msg}')
+    log_action(admin_id, 'mod_request_approve', f'#{req_id} {action} → {target}')
+    return True, f'✅ Запрос #{req_id} одобрён. {result_msg}'
+
+def reject_moderator_request(req_id, admin_id):
+    row = get_pending_moderator_request(req_id)
+    if not row:
+        return False, '❌ Запрос не найден или уже обработан.'
+    c = get_cursor()
+    c.execute(
+        "UPDATE moderator_requests SET status = 'rejected', resolved_at = CURRENT_TIMESTAMP WHERE id = ?",
+        (req_id,),
+    )
+    db.commit()
+    safe_send(
+        row['moderator_id'],
+        f'❌ Ваш запрос #{req_id} ({row["action_type"]}) отклонён администратором.',
+    )
+    log_action(admin_id, 'mod_request_reject', f'#{req_id} {row["action_type"]}')
+    return True, f'❌ Запрос #{req_id} отклонён.'
+
 def get_user(user_id):
     c = get_cursor()
     c.execute('SELECT * FROM users WHERE chatId = ?', (user_id,))
@@ -2970,12 +3108,7 @@ def handle_states(m):
         if not get_user(target):
             safe_send(m.chat.id, "❌ Пользователь не найден")
             return
-        c = get_cursor()
-        c.execute(
-            'INSERT INTO moderator_requests (moderator_id, action_type, target_user_id, data) VALUES (?, ?, ?, ?)',
-            (user_id, 'ban', target, '{}'),
-        )
-        db.commit()
+        create_moderator_request(user_id, 'ban', target)
         del user_states[user_id]
         safe_send(
             m.chat.id,
@@ -2992,12 +3125,7 @@ def handle_states(m):
         if not get_user(target):
             safe_send(m.chat.id, "❌ Пользователь не найден")
             return
-        c = get_cursor()
-        c.execute(
-            'INSERT INTO moderator_requests (moderator_id, action_type, target_user_id, data) VALUES (?, ?, ?, ?)',
-            (user_id, 'unban', target, '{}'),
-        )
-        db.commit()
+        create_moderator_request(user_id, 'unban', target)
         del user_states[user_id]
         safe_send(
             m.chat.id,
@@ -3019,12 +3147,7 @@ def handle_states(m):
         if not get_user(target):
             safe_send(m.chat.id, "❌ Пользователь не найден")
             return
-        c = get_cursor()
-        c.execute(
-            'INSERT INTO moderator_requests (moderator_id, action_type, target_user_id, data) VALUES (?, ?, ?, ?)',
-            (user_id, 'balance_rub', target, json.dumps({'amount': amount})),
-        )
-        db.commit()
+        create_moderator_request(user_id, 'balance_rub', target, {'amount': amount})
         del user_states[user_id]
         safe_send(
             m.chat.id,
@@ -3046,12 +3169,7 @@ def handle_states(m):
         if not get_user(target):
             safe_send(m.chat.id, "❌ Пользователь не найден")
             return
-        c = get_cursor()
-        c.execute(
-            'INSERT INTO moderator_requests (moderator_id, action_type, target_user_id, data) VALUES (?, ?, ?, ?)',
-            (user_id, 'balance_crf', target, json.dumps({'amount': amount})),
-        )
-        db.commit()
+        create_moderator_request(user_id, 'balance_crf', target, {'amount': amount})
         del user_states[user_id]
         safe_send(
             m.chat.id,
@@ -3076,12 +3194,7 @@ def handle_states(m):
         if level < 1:
             safe_send(m.chat.id, "❌ Уровень должен быть >= 1")
             return
-        c = get_cursor()
-        c.execute(
-            'INSERT INTO moderator_requests (moderator_id, action_type, target_user_id, data) VALUES (?, ?, ?, ?)',
-            (user_id, 'change_level', target, json.dumps({'level': level})),
-        )
-        db.commit()
+        create_moderator_request(user_id, 'change_level', target, {'level': level})
         del user_states[user_id]
         safe_send(
             m.chat.id,
@@ -3106,12 +3219,7 @@ def handle_states(m):
         if days < 1:
             safe_send(m.chat.id, "❌ Дней должно быть >= 1")
             return
-        c = get_cursor()
-        c.execute(
-            'INSERT INTO moderator_requests (moderator_id, action_type, target_user_id, data) VALUES (?, ?, ?, ?)',
-            (user_id, 'give_vip', target, json.dumps({'days': days})),
-        )
-        db.commit()
+        create_moderator_request(user_id, 'give_vip', target, {'days': days})
         del user_states[user_id]
         safe_send(
             m.chat.id,
@@ -4310,21 +4418,40 @@ def callback_handler(call):
         )
         rows = c.fetchall()
         if not rows:
-            safe_send(chat_id, "📭 Нет активных запросов модераторов.")
+            safe_send(chat_id, "📭 Нет активных запросов модераторов.", reply_markup=admin_kb())
             safe_answer(call.id)
             return
-        text = "📋 ЗАПРОСЫ МОДЕРАТОРОВ\n\n"
+        safe_send(chat_id, f"📋 Активных запросов модераторов: {len(rows)}", reply_markup=admin_kb())
         for row in rows:
-            text += (
-                f"🆔 #{row['id']}\n"
-                f"👤 Модератор: {row['moderator_id']}\n"
-                f"🎯 Цель: {row['target_user_id']}\n"
-                f"⚙️ Действие: {row['action_type']}\n"
-                f"📝 Данные: {row['data'] or '{}'}\n"
-                f"🕒 {row['created_at']}\n\n"
+            safe_send(
+                chat_id,
+                format_moderator_request_text(row),
+                parse_mode='HTML',
+                reply_markup=moderator_request_kb(row['id']),
             )
-        safe_send(chat_id, text, parse_mode='HTML')
         safe_answer(call.id)
+        return
+
+    if data.startswith('admin_modreq_accept_'):
+        try:
+            req_id = int(data.split('_')[3])
+        except Exception:
+            safe_answer(call.id, "❌ Некорректный запрос.", alert=True)
+            return
+        success, msg = execute_moderator_request(req_id, user_id)
+        safe_send(chat_id, msg, reply_markup=admin_kb())
+        safe_answer(call.id, "✅ Одобрен" if success else "❌ Ошибка", alert=not success)
+        return
+
+    if data.startswith('admin_modreq_reject_'):
+        try:
+            req_id = int(data.split('_')[3])
+        except Exception:
+            safe_answer(call.id, "❌ Некорректный запрос.", alert=True)
+            return
+        success, msg = reject_moderator_request(req_id, user_id)
+        safe_send(chat_id, msg, reply_markup=admin_kb())
+        safe_answer(call.id, "❌ Отклонён" if success else "❌ Ошибка", alert=not success)
         return
 
     if data == 'admin_transactions':
@@ -4734,7 +4861,7 @@ init_db()
 
 
 if __name__ == '__main__':
-    print('🤖 CRYPTO COINREF BOT v124.2')
+    print('🤖 CRYPTO COINREF BOT v124.3')
     print(f'📂 База: {DB_PATH}')
     print(f'👑 Админы: {ADMIN_IDS}')
     try:

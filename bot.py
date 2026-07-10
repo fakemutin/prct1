@@ -130,6 +130,76 @@ db.row_factory = sqlite3.Row
 def get_cursor():
     return db.cursor()
 
+def migrate_legacy_schema():
+    c = get_cursor()
+    c.execute("PRAGMA table_info(users)")
+    cols = [row[1] for row in c.fetchall()]
+    if not cols or 'chatId' in cols or 'tg_id' not in cols:
+        return
+    print('ℹ️ Миграция старой схемы bot.db (tg_id → chatId)...')
+    c.execute('ALTER TABLE users RENAME TO users_legacy')
+    c.execute('''CREATE TABLE users (
+    chatId INTEGER PRIMARY KEY,
+    firstName TEXT,
+    username TEXT,
+    balance REAL DEFAULT 0,
+    referer INTEGER DEFAULT -1,
+    is_verified INTEGER DEFAULT 0,
+    is_banned INTEGER DEFAULT 0,
+    level INTEGER DEFAULT 1,
+    exp INTEGER DEFAULT 0,
+    elo_rating INTEGER DEFAULT 1200,
+    ref_level INTEGER DEFAULT 1,
+    lastDailyBonus TEXT,
+    lastSpin TEXT,
+    warnings INTEGER DEFAULT 0,
+    duel_blocked_until TEXT,
+    verification_code TEXT,
+    vip_until TEXT,
+    daily_tasks_date TEXT,
+    daily_tasks_done TEXT,
+    vip_active INTEGER DEFAULT 0
+    )''')
+    c.execute('''
+        INSERT INTO users (
+            chatId, firstName, username, balance, referer, is_verified, is_banned,
+            level, exp, elo_rating, ref_level, lastDailyBonus, lastSpin,
+            warnings, duel_blocked_until, verification_code, vip_until,
+            daily_tasks_date, daily_tasks_done, vip_active
+        )
+        SELECT
+            tg_id,
+            COALESCE(username, ''),
+            username,
+            COALESCE(balance_rub, 0),
+            CASE WHEN referrer_id IS NULL THEN -1 ELSE referrer_id END,
+            1,
+            COALESCE(is_banned, 0),
+            COALESCE(level, 1),
+            COALESCE(exp, 0),
+            COALESCE(elo_rating, 1200),
+            COALESCE(ref_level, 1),
+            CASE WHEN daily_last IS NULL THEN NULL ELSE substr(daily_last, 1, 10) END,
+            CASE WHEN wheel_last IS NULL THEN NULL ELSE substr(wheel_last, 1, 10) END,
+            COALESCE(warnings, 0),
+            duel_blocked_until,
+            verification_code,
+            vip_until,
+            daily_tasks_date,
+            daily_tasks_done,
+            COALESCE(vip_active, 0)
+        FROM users_legacy
+    ''')
+    for row in c.execute('SELECT tg_id, COALESCE(balance_crf, 0) FROM users_legacy'):
+        if row[1]:
+            c.execute(
+                'INSERT OR REPLACE INTO crf_balances (user_id, balance) VALUES (?, ?)',
+                (row[0], row[1]),
+            )
+    c.execute('DROP TABLE users_legacy')
+    db.commit()
+    print('✅ Миграция пользователей завершена')
+
 def init_db():
     c = get_cursor()
     # Все таблицы (как в предыдущей версии)
@@ -362,6 +432,7 @@ def init_db():
                 'commission_exchange_crf', 'commission_invest_crf']:
         c.execute('INSERT OR IGNORE INTO stats (key, value) VALUES (?, 0)', (key,))
     db.commit()
+    migrate_legacy_schema()
     c.execute("PRAGMA table_info(users)")
     cols = [row[1] for row in c.fetchall()]
     for col in ['level','exp','elo_rating','ref_level','vip_until','daily_tasks_date','daily_tasks_done','duel_blocked_until','warnings','is_banned','verification_code','vip_active']:
@@ -1736,6 +1807,9 @@ def season_menu_btn(m):
         days = remaining.days
         hours = remaining.seconds // 3600
         text += f"⏳ До конца: {days} дн. {hours} ч.\n"
+        text += f"📅 {start} — {end}\n"
+        text += f"💰 Призовой фонд: {season['prize_pool']:.2f} ₽\n"
+        text += f"📊 Всего дуэлей: {stats['total_duels']}\n"
     else:
         text += "⏳ Сезон завершён!\n"
         text += f"📊 Всего дуэлей: {stats['total_duels']}\n"
@@ -1743,13 +1817,13 @@ def season_menu_btn(m):
         text += "🏆 ТОП ПОБЕДИТЕЛЕЙ СЕЗОНА\n"
         if stats['top_winners']:
             medals = ['🥇', '🥈', '🥉', '4️⃣', '5️⃣']
-        for i, row in enumerate(stats['top_winners']):
-            user = get_user(row['winner_id'])
-            name = user['firstName'] if user else str(row['winner_id'])
-            text += f"{medals[i] if i < 5 else ''} {name} – {row['wins']} побед\n"
+            for i, row in enumerate(stats['top_winners']):
+                user = get_user(row['winner_id'])
+                name = user['firstName'] if user else str(row['winner_id'])
+                text += f"{medals[i] if i < 5 else ''} {name} – {row['wins']} побед\n"
         else:
             text += "Пока нет данных.\n"
-            safe_send(m.chat.id, text, parse_mode='HTML')
+    safe_send(m.chat.id, text, parse_mode='HTML')
 
 # -------- ПРОДВИЖЕНИЕ --------
 @bot.message_handler(func=lambda m: m.text == '📢 Продвижение')
@@ -1819,13 +1893,13 @@ def start_cmd(message):
         db.commit()
         c.execute('UPDATE stats SET value = value + 1 WHERE key = "total_users"')
         db.commit()
-    if not check_subscription(user_id):
+    if not is_admin(user_id) and not check_subscription(user_id):
         kb = InlineKeyboardMarkup()
         kb.add(InlineKeyboardButton('📢 Подписаться', url='https://t.me/COINREF_OFFICIAL'))
         kb.add(InlineKeyboardButton('✅ Я подписался', callback_data='check_sub'))
         safe_send(message.chat.id, CONFIG.get('subscribemsg', '📢 Подпишитесь на каналы!'), reply_markup=kb)
         return
-    if not check_extra_subscriptions(user_id):
+    if not is_admin(user_id) and not check_extra_subscriptions(user_id):
         kb = InlineKeyboardMarkup()
         c = get_cursor()
         c.execute('SELECT DISTINCT channel FROM promo_subscriptions')
@@ -1835,7 +1909,7 @@ def start_cmd(message):
         kb.add(InlineKeyboardButton('✅ Я подписался', callback_data='check_extra_sub'))
         safe_send(message.chat.id, "📢 Для доступа ко всем функциям подпишитесь на рекламные каналы:", reply_markup=kb)
         return
-    if not get_field(user_id, 'is_verified', 0):
+    if not is_admin(user_id) and not get_field(user_id, 'is_verified', 0):
         code = generate_verification_code()
         update_field(user_id, 'verification_code', code)
         text = f'''🔐 ВЕРИФИКАЦИЯ
@@ -3535,7 +3609,7 @@ def wheel_btn(m):
 
 
 if __name__ == '__main__':
-    print('🤖 CRYPTO COINREF BOT v123.1')
+    print('🤖 CRYPTO COINREF BOT v123.2')
     print(f'📂 База: {DB_PATH}')
     print(f'👑 Админы: {ADMIN_IDS}')
     try:

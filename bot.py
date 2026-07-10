@@ -73,23 +73,23 @@ def load_config():
         }
         with open('config.json', 'w', encoding='utf-8') as f:
             json.dump(default, f, indent=4, ensure_ascii=False)
-            return default
+        return default
 
-    CONFIG = load_config()
-    TOKEN = CONFIG['telegramBotToken']
-    if TOKEN == 'YOUR_BOT_TOKEN_HERE':
-        print("❌ Укажите токен в config.json")
-        exit(1)
+CONFIG = load_config()
+TOKEN = CONFIG['telegramBotToken']
+if TOKEN == 'YOUR_BOT_TOKEN_HERE':
+    print("❌ Укажите токен в config.json")
+    exit(1)
 
-        ADMIN_IDS = [int(x.strip()) for x in CONFIG['admin'].split(',') if x.strip()]
-        MODERATOR_IDS = [int(x.strip()) for x in CONFIG.get('moderators', '').split(',') if x.strip()]
-        LOG_CHAT_ID = CONFIG.get('log_chat_id', 0)
+ADMIN_IDS = [int(x.strip()) for x in CONFIG['admin'].split(',') if x.strip()]
+MODERATOR_IDS = [int(x.strip()) for x in CONFIG.get('moderators', '').split(',') if x.strip()]
+LOG_CHAT_ID = CONFIG.get('log_chat_id', 0)
 
-        # ============================================================
-        # 2. БАЗА ДАННЫХ (ПОЛНАЯ)
-        # ============================================================
-        db = sqlite3.connect('data.db', check_same_thread=False)
-        db.row_factory = sqlite3.Row
+# ============================================================
+# 2. БАЗА ДАННЫХ (ПОЛНАЯ)
+# ============================================================
+db = sqlite3.connect('data.db', check_same_thread=False)
+db.row_factory = sqlite3.Row
 
 def get_cursor():
     return db.cursor()

@@ -2307,6 +2307,82 @@ def main_menu(user_id):
         kb.row('🛡️ Модератор-панель')
     return kb
 
+MOD_INPUT_STATES = {
+    'mod_ban', 'mod_unban', 'mod_balance_rub', 'mod_balance_crf',
+    'mod_level', 'mod_vip', 'mod_cancel_withdraw',
+}
+ADMIN_MOD_INPUT_STATES = {'admin_mod_grant', 'admin_mod_revoke'}
+
+def cancel_user_flow(user_id, chat_id):
+    state = user_states.get(user_id, {}).get('state') if user_id in user_states else None
+    if user_id in user_states:
+        del user_states[user_id]
+    if state in MOD_INPUT_STATES:
+        safe_send(chat_id, '✅ Отменено.', reply_markup=main_menu(user_id))
+        safe_send(
+            chat_id,
+            '🛡️ <b>МОДЕРАТОР-ПАНЕЛЬ</b>\n\nДействия отправляют запрос администраторам.',
+            parse_mode='HTML',
+            reply_markup=moderator_kb(),
+        )
+        return
+    if state in ADMIN_MOD_INPUT_STATES:
+        safe_send(chat_id, '✅ Отменено.', reply_markup=main_menu(user_id))
+        safe_send(
+            chat_id,
+            '🛡️ <b>МОДЕРАТОРЫ</b>\n\nВыдайте или снимите доступ к модератор-панели.',
+            parse_mode='HTML',
+            reply_markup=admin_mod_menu_kb(),
+        )
+        return
+    if state == 'admin_promo_wizard':
+        safe_send(chat_id, '❌ Создание промокода отменено.', reply_markup=admin_promo_menu_kb())
+        return
+    safe_send(chat_id, '✅ Отменено.', reply_markup=main_menu(user_id))
+
+def show_moderator_panel(chat_id, user_id):
+    if user_id in user_states:
+        del user_states[user_id]
+    safe_send(chat_id, 'Главное меню', reply_markup=main_menu(user_id))
+    safe_send(
+        chat_id,
+        '🛡️ <b>МОДЕРАТОР-ПАНЕЛЬ</b>\n\nДействия отправляют запрос администраторам.',
+        parse_mode='HTML',
+        reply_markup=moderator_kb(),
+    )
+
+def mod_flow_inline_kb():
+    kb = InlineKeyboardMarkup(row_width=2)
+    kb.row(
+        InlineKeyboardButton('❌ Отмена', callback_data='mod_cancel'),
+        InlineKeyboardButton('🔙 В панель', callback_data='mod_back'),
+    )
+    return kb
+
+def admin_mod_flow_kb():
+    kb = InlineKeyboardMarkup(row_width=2)
+    kb.row(
+        InlineKeyboardButton('❌ Отмена', callback_data='admin_mod_cancel'),
+        InlineKeyboardButton('🔙 Назад', callback_data='admin_mod_menu'),
+    )
+    return kb
+
+def begin_mod_input(chat_id, user_id, state, prompt):
+    user_states[user_id] = {'state': state}
+    safe_send(
+        chat_id,
+        f"{prompt}\n\n<i>Отмена: кнопки ниже, «❌ Отменить» или /cancel</i>",
+        parse_mode='HTML',
+        reply_markup=cancel_kb(),
+    )
+    safe_send(chat_id, '⬇️ Управление', reply_markup=mod_flow_inline_kb())
+
+def finish_mod_action(chat_id, user_id, text):
+    if user_id in user_states:
+        del user_states[user_id]
+    safe_send(chat_id, text, reply_markup=main_menu(user_id))
+    safe_send(chat_id, '🛡️ Модератор-панель:', reply_markup=moderator_kb())
+
 def cancel_kb():
     kb = ReplyKeyboardMarkup(resize_keyboard=True)
     kb.row('❌ Отменить')
@@ -2423,22 +2499,24 @@ def moderator_kb():
     kb.row(
     InlineKeyboardButton('📛 Отменить вывод', callback_data='mod_cancel_withdraw')
     )
+    kb.row(
+    InlineKeyboardButton('🔙 В главное меню', callback_data='mod_back')
+    )
     return kb
 
     # ============================================================
     # 10. ОБРАБОТЧИКИ ТЕКСТОВЫХ КНОПОК МЕНЮ (ВСЕ ОТПРАВЛЯЮТ НОВЫЕ СООБЩЕНИЯ)
     # ============================================================
+@bot.message_handler(func=lambda m: m.text == '❌ Отменить')
+def cancel_btn_handler(m):
+    cancel_user_flow(m.from_user.id, m.chat.id)
+
 @bot.message_handler(func=should_handle_user_state)
 def handle_states(m):
     user_id = m.from_user.id
     if user_id not in user_states:
         return
     state = user_states[user_id].get('state')
-
-    if m.text == '❌ Отменить':
-        del user_states[user_id]
-        safe_send(m.chat.id, '✅ Отменено.', reply_markup=main_menu(user_id))
-        return
 
     if m.text in ('🔙 Назад', '⬅️ Назад'):
         del user_states[user_id]
@@ -3109,11 +3187,10 @@ def handle_states(m):
             safe_send(m.chat.id, "❌ Пользователь не найден")
             return
         create_moderator_request(user_id, 'ban', target)
-        del user_states[user_id]
-        safe_send(
+        finish_mod_action(
             m.chat.id,
+            user_id,
             f"✅ Запрос на блокировку {target} отправлен администраторам.",
-            reply_markup=main_menu(user_id),
         )
 
     elif state == 'mod_unban':
@@ -3126,11 +3203,10 @@ def handle_states(m):
             safe_send(m.chat.id, "❌ Пользователь не найден")
             return
         create_moderator_request(user_id, 'unban', target)
-        del user_states[user_id]
-        safe_send(
+        finish_mod_action(
             m.chat.id,
+            user_id,
             f"✅ Запрос на разблокировку {target} отправлен администраторам.",
-            reply_markup=main_menu(user_id),
         )
 
     elif state == 'mod_balance_rub':
@@ -3148,11 +3224,10 @@ def handle_states(m):
             safe_send(m.chat.id, "❌ Пользователь не найден")
             return
         create_moderator_request(user_id, 'balance_rub', target, {'amount': amount})
-        del user_states[user_id]
-        safe_send(
+        finish_mod_action(
             m.chat.id,
+            user_id,
             f"✅ Запрос на изменение баланса ₽ {target} на {amount:.2f} отправлен администраторам.",
-            reply_markup=main_menu(user_id),
         )
 
     elif state == 'mod_balance_crf':
@@ -3170,11 +3245,10 @@ def handle_states(m):
             safe_send(m.chat.id, "❌ Пользователь не найден")
             return
         create_moderator_request(user_id, 'balance_crf', target, {'amount': amount})
-        del user_states[user_id]
-        safe_send(
+        finish_mod_action(
             m.chat.id,
+            user_id,
             f"✅ Запрос на изменение баланса CRF {target} на {amount:.2f} отправлен администраторам.",
-            reply_markup=main_menu(user_id),
         )
 
     elif state == 'mod_level':
@@ -3195,11 +3269,10 @@ def handle_states(m):
             safe_send(m.chat.id, "❌ Уровень должен быть >= 1")
             return
         create_moderator_request(user_id, 'change_level', target, {'level': level})
-        del user_states[user_id]
-        safe_send(
+        finish_mod_action(
             m.chat.id,
+            user_id,
             f"✅ Запрос на изменение уровня {target} на {level} отправлен администраторам.",
-            reply_markup=main_menu(user_id),
         )
 
     elif state == 'mod_vip':
@@ -3220,11 +3293,10 @@ def handle_states(m):
             safe_send(m.chat.id, "❌ Дней должно быть >= 1")
             return
         create_moderator_request(user_id, 'give_vip', target, {'days': days})
-        del user_states[user_id]
-        safe_send(
+        finish_mod_action(
             m.chat.id,
+            user_id,
             f"✅ Запрос на выдачу VIP на {days} дней пользователю {target} отправлен администраторам.",
-            reply_markup=main_menu(user_id),
         )
 
     elif state == 'mod_cancel_withdraw':
@@ -3242,16 +3314,18 @@ def handle_states(m):
         add_transaction_rub(row['chatId'], row['amount'], 'withdraw_cancel', f'Отмена заявки модератором #{withdraw_id}')
         c.execute('UPDATE withdraws SET status = 2 WHERE id = ?', (withdraw_id,))
         db.commit()
-        del user_states[user_id]
         safe_send(
+            row['chatId'],
+            f"❌ Заявка на вывод #{withdraw_id} отменена модератором. {row['amount']:.2f} ₽ возвращены.",
+        )
+        finish_mod_action(
             m.chat.id,
+            user_id,
             f"✅ Заявка #{withdraw_id} отменена, средства возвращены.",
-            reply_markup=main_menu(user_id),
         )
 
     else:
-        del user_states[user_id]
-        safe_send(m.chat.id, '✅ Отменено.', reply_markup=main_menu(user_id))
+        cancel_user_flow(user_id, m.chat.id)
 
 
 @bot.message_handler(func=lambda m: m.text == '👤 Кабинет')
@@ -3765,8 +3839,7 @@ def admin_panel_btn(m):
 def mod_panel_btn(m):
     if is_moderator(m.from_user.id):
         log_action(m.from_user.id, "Открыл модератор-панель")
-        text = "🛡️ МОДЕРАТОР-ПАНЕЛЬ\n\nДействия отправляют запрос администраторам."
-        safe_send(m.chat.id, text, parse_mode='HTML', reply_markup=moderator_kb())
+        show_moderator_panel(m.chat.id, m.from_user.id)
     else:
         safe_send(m.chat.id, '⛔ Доступ запрещён!')
 
@@ -3909,10 +3982,7 @@ def admin_cmd(message):
 
 @bot.message_handler(commands=['cancel'])
 def cancel_cmd(message):
-    user_id = message.from_user.id
-    if user_id in user_states:
-        del user_states[user_id]
-        safe_send(message.chat.id, '✅ Отменено.', reply_markup=main_menu(user_id))
+    cancel_user_flow(message.from_user.id, message.chat.id)
 
 @bot.message_handler(commands=['reply_ticket'])
 def reply_ticket_cmd(message):
@@ -4108,45 +4178,48 @@ def callback_handler(call):
         safe_answer(call.id, '⛔ Доступ запрещён!', alert=True)
         return
 
+    if data == 'mod_back':
+        show_moderator_panel(chat_id, user_id)
+        safe_answer(call.id, '🔙 Модератор-панель')
+        return
+
+    if data == 'mod_cancel':
+        cancel_user_flow(user_id, chat_id)
+        safe_answer(call.id, '✅ Отменено')
+        return
+
     if data == 'mod_ban':
-        user_states[user_id] = {'state': 'mod_ban'}
-        safe_send(chat_id, "🚫 Введите ID пользователя для блокировки:", reply_markup=cancel_kb())
+        begin_mod_input(chat_id, user_id, 'mod_ban', "🚫 Введите ID пользователя для блокировки:")
         safe_answer(call.id)
         return
 
     if data == 'mod_unban':
-        user_states[user_id] = {'state': 'mod_unban'}
-        safe_send(chat_id, "✅ Введите ID пользователя для разблокировки:", reply_markup=cancel_kb())
+        begin_mod_input(chat_id, user_id, 'mod_unban', "✅ Введите ID пользователя для разблокировки:")
         safe_answer(call.id)
         return
 
     if data == 'mod_balance_rub':
-        user_states[user_id] = {'state': 'mod_balance_rub'}
-        safe_send(chat_id, "💰 Введите: <user_id> <сумма>", reply_markup=cancel_kb())
+        begin_mod_input(chat_id, user_id, 'mod_balance_rub', "💰 Введите: <user_id> <сумма>")
         safe_answer(call.id)
         return
 
     if data == 'mod_balance_crf':
-        user_states[user_id] = {'state': 'mod_balance_crf'}
-        safe_send(chat_id, "💎 Введите: <user_id> <сумма>", reply_markup=cancel_kb())
+        begin_mod_input(chat_id, user_id, 'mod_balance_crf', "💎 Введите: <user_id> <сумма>")
         safe_answer(call.id)
         return
 
     if data == 'mod_level':
-        user_states[user_id] = {'state': 'mod_level'}
-        safe_send(chat_id, "📈 Введите: <user_id> <уровень>", reply_markup=cancel_kb())
+        begin_mod_input(chat_id, user_id, 'mod_level', "📈 Введите: <user_id> <уровень>")
         safe_answer(call.id)
         return
 
     if data == 'mod_vip':
-        user_states[user_id] = {'state': 'mod_vip'}
-        safe_send(chat_id, "👑 Введите: <user_id> <дни>", reply_markup=cancel_kb())
+        begin_mod_input(chat_id, user_id, 'mod_vip', "👑 Введите: <user_id> <дни>")
         safe_answer(call.id)
         return
 
     if data == 'mod_cancel_withdraw':
-        user_states[user_id] = {'state': 'mod_cancel_withdraw'}
-        safe_send(chat_id, "📛 Введите ID заявки на вывод:", reply_markup=cancel_kb())
+        begin_mod_input(chat_id, user_id, 'mod_cancel_withdraw', "📛 Введите ID заявки на вывод:")
         safe_answer(call.id)
         return
 
@@ -4666,6 +4739,8 @@ def callback_handler(call):
         return
 
     if data == 'admin_mod_menu':
+        if user_id in user_states:
+            del user_states[user_id]
         safe_send(
             chat_id,
             '🛡️ <b>МОДЕРАТОРЫ</b>\n\n'
@@ -4676,14 +4751,21 @@ def callback_handler(call):
         safe_answer(call.id)
         return
 
+    if data == 'admin_mod_cancel':
+        cancel_user_flow(user_id, chat_id)
+        safe_answer(call.id, '✅ Отменено')
+        return
+
     if data == 'admin_mod_grant':
         user_states[user_id] = {'state': 'admin_mod_grant'}
         safe_send(
             chat_id,
-            '➕ Введите <b>ID</b> или <b>@username</b> пользователя для выдачи модератора:',
+            '➕ Введите <b>ID</b> или <b>@username</b> пользователя для выдачи модератора:\n\n'
+            '<i>Отмена: кнопки ниже, «❌ Отменить» или /cancel</i>',
             parse_mode='HTML',
             reply_markup=cancel_kb(),
         )
+        safe_send(chat_id, '⬇️ Управление', reply_markup=admin_mod_flow_kb())
         safe_answer(call.id)
         return
 
@@ -4691,10 +4773,12 @@ def callback_handler(call):
         user_states[user_id] = {'state': 'admin_mod_revoke'}
         safe_send(
             chat_id,
-            '➖ Введите <b>ID</b> или <b>@username</b> для снятия модератора:',
+            '➖ Введите <b>ID</b> или <b>@username</b> для снятия модератора:\n\n'
+            '<i>Отмена: кнопки ниже, «❌ Отменить» или /cancel</i>',
             parse_mode='HTML',
             reply_markup=cancel_kb(),
         )
+        safe_send(chat_id, '⬇️ Управление', reply_markup=admin_mod_flow_kb())
         safe_answer(call.id)
         return
 
@@ -4861,7 +4945,7 @@ init_db()
 
 
 if __name__ == '__main__':
-    print('🤖 CRYPTO COINREF BOT v124.3')
+    print('🤖 CRYPTO COINREF BOT v124.4')
     print(f'📂 База: {DB_PATH}')
     print(f'👑 Админы: {ADMIN_IDS}')
     try:

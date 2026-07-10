@@ -311,6 +311,45 @@ def migrate_duels_schema():
     db.commit()
     print('✅ Миграция таблицы duels завершена')
 
+def migrate_promocodes_schema():
+    c = get_cursor()
+    c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='promocodes'")
+    if not c.fetchone():
+        return
+    c.execute('PRAGMA table_info(promocodes)')
+    col_names = {row[1] for row in c.fetchall()}
+    extra_columns = {
+        'reward_rub': 'REAL DEFAULT 0',
+        'reward_crf': 'REAL DEFAULT 0',
+        'reward_exp': 'INTEGER DEFAULT 0',
+        'reward_vip_days': 'INTEGER DEFAULT 0',
+        'reward_level': 'INTEGER DEFAULT 0',
+        'reward_ref_level': 'INTEGER DEFAULT 0',
+        'reward_elo': 'INTEGER DEFAULT 0',
+        'max_per_user': 'INTEGER DEFAULT 1',
+        'min_level': 'INTEGER DEFAULT 0',
+        'vip_only': 'INTEGER DEFAULT 0',
+        'new_users_only': 'INTEGER DEFAULT 0',
+        'expires_at': 'TEXT',
+        'is_active': 'INTEGER DEFAULT 1',
+        'description': 'TEXT',
+        'created_at': 'TIMESTAMP',
+        'created_by': 'INTEGER',
+    }
+    for col, typedef in extra_columns.items():
+        if col not in col_names:
+            c.execute(f'ALTER TABLE promocodes ADD COLUMN {col} {typedef}')
+    c.execute(
+        '''
+        UPDATE promocodes
+        SET reward_rub = COALESCE(reward_rub, sum, 0)
+        WHERE reward_rub IS NULL OR reward_rub = 0
+        '''
+    )
+    c.execute("UPDATE promocodes SET is_active = 1 WHERE is_active IS NULL")
+    c.execute("UPDATE promocodes SET max_per_user = 1 WHERE max_per_user IS NULL OR max_per_user < 1")
+    db.commit()
+
 def is_opponent_slot_free(opponent_id):
     return opponent_id is None or opponent_id in (-1, 0)
 
@@ -553,6 +592,7 @@ def init_db():
         if col not in cols:
             c.execute(f'ALTER TABLE users ADD COLUMN {col}')
     migrate_duels_schema()
+    migrate_promocodes_schema()
     c.execute('SELECT COUNT(*) FROM crf_rate')
     if c.fetchone()[0] == 0:
         c.execute('INSERT INTO crf_rate (rate) VALUES (?)', (CONFIG.get('crf_initial_rate', 0.01),))
@@ -590,7 +630,7 @@ MENU_BUTTON_TEXTS = {
     '💎 Стейкинг', '14 дней (15%)', '30 дней (20%)', '7 дней (10%)',
     '📊 Мои инвестиции', '📊 Мои стейки', '👑 Купить VIP за 100 ₽',
     '📤 Поделиться ссылкой', '📨 Рассылка', '📢 Реклама канала',
-    '💸 Вывести ₽', '💳 Пополнить', '📊 История',
+    '💸 Вывести ₽', '💳 Пополнить', '📊 История', '🎟️ Промокод',
     '🔙 Назад', '⬅️ Назад',
 }
 
@@ -810,6 +850,320 @@ def format_time_remaining(seconds):
     if hours > 0:
         return f"{hours}ч {minutes}мин"
     return f"{minutes}мин"
+
+# ============================================================
+# ПРОМОКОДЫ
+# ============================================================
+def normalize_promo_code(code):
+    return re.sub(r'\s+', '', (code or '').strip().upper())
+
+def grant_vip_days(user_id, days):
+    if days <= 0:
+        return
+    now = datetime.now()
+    vip_until = get_field(user_id, 'vip_until', None)
+    base = now
+    if vip_until:
+        try:
+            base = max(datetime.fromisoformat(vip_until), now)
+        except Exception:
+            base = now
+    new_end = base + timedelta(days=days)
+    update_field(user_id, 'vip_until', new_end.isoformat())
+    update_field(user_id, 'vip_active', 1)
+
+def get_promocode_usage_count(code):
+    c = get_cursor()
+    c.execute('SELECT COUNT(*) FROM promocodeactivations WHERE hash = ?', (code,))
+    return c.fetchone()[0] or 0
+
+def get_user_promo_activations(code, user_id):
+    c = get_cursor()
+    c.execute('SELECT COUNT(*) FROM promocodeactivations WHERE hash = ? AND userId = ?', (code, user_id))
+    return c.fetchone()[0] or 0
+
+def get_promocode(code):
+    code = normalize_promo_code(code)
+    if not code:
+        return None
+    c = get_cursor()
+    c.execute('SELECT * FROM promocodes WHERE hash = ?', (code,))
+    return c.fetchone()
+
+def format_promo_rewards(promo):
+    parts = []
+    rub = promo['reward_rub'] if 'reward_rub' in promo.keys() else promo.get('sum', 0)
+    if rub and rub > 0:
+        parts.append(f'{rub:.2f} ₽')
+    if promo['reward_crf'] and promo['reward_crf'] > 0:
+        parts.append(f'{promo["reward_crf"]:.2f} CRF')
+    if promo['reward_exp'] and promo['reward_exp'] > 0:
+        parts.append(f'+{promo["reward_exp"]} опыта')
+    if promo['reward_vip_days'] and promo['reward_vip_days'] > 0:
+        parts.append(f'VIP {promo["reward_vip_days"]} дн.')
+    if promo['reward_level'] and promo['reward_level'] > 0:
+        parts.append(f'уровень → {promo["reward_level"]}')
+    if promo['reward_ref_level'] and promo['reward_ref_level'] > 0:
+        parts.append(f'реф. ур. → {promo["reward_ref_level"]}')
+    if promo['reward_elo'] and promo['reward_elo'] > 0:
+        parts.append(f'+{promo["reward_elo"]} Elo')
+    return ', '.join(parts) if parts else 'без наград'
+
+def build_promo_wizard_summary(data):
+    lines = [
+        f'🎟️ Код: <b>{data["code"]}</b>',
+        f'🔢 Активаций: {"∞" if data["activations"] == 0 else data["activations"]}',
+        f'👤 На человека: {data["max_per_user"]}',
+        f'🎁 Награды: {format_promo_rewards_data(data)}',
+    ]
+    if data.get('min_level', 0) > 0:
+        lines.append(f'📈 Мин. уровень: {data["min_level"]}')
+    if data.get('vip_only'):
+        lines.append('👑 Только VIP')
+    if data.get('new_users_only'):
+        lines.append('🆕 Только новые игроки')
+    if data.get('expires_at'):
+        lines.append(f'⏳ До: {data["expires_at"][:16].replace("T", " ")}')
+    if data.get('description'):
+        lines.append(f'📝 {data["description"]}')
+    return '\n'.join(lines)
+
+def format_promo_rewards_data(data):
+    class _P:
+        def __init__(self, d):
+            self._d = d
+        def __getitem__(self, key):
+            return self._d.get(key, 0)
+        def keys(self):
+            return self._d.keys()
+        def get(self, key, default=None):
+            return self._d.get(key, default)
+    return format_promo_rewards(_P(data))
+
+def create_promocode_record(data, created_by):
+    code = normalize_promo_code(data['code'])
+    c = get_cursor()
+    c.execute('SELECT 1 FROM promocodes WHERE hash = ?', (code,))
+    if c.fetchone():
+        return False, '❌ Промокод с таким именем уже существует.'
+    legacy_sum = float(data.get('reward_rub', 0) or 0)
+    c.execute(
+        '''
+        INSERT INTO promocodes (
+            hash, activations, sum, reward_rub, reward_crf, reward_exp,
+            reward_vip_days, reward_level, reward_ref_level, reward_elo,
+            max_per_user, min_level, vip_only, new_users_only,
+            expires_at, is_active, description, created_at, created_by
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, CURRENT_TIMESTAMP, ?)
+        ''',
+        (
+            code,
+            int(data.get('activations', 0) or 0),
+            legacy_sum,
+            float(data.get('reward_rub', 0) or 0),
+            float(data.get('reward_crf', 0) or 0),
+            int(data.get('reward_exp', 0) or 0),
+            int(data.get('reward_vip_days', 0) or 0),
+            int(data.get('reward_level', 0) or 0),
+            int(data.get('reward_ref_level', 0) or 0),
+            int(data.get('reward_elo', 0) or 0),
+            int(data.get('max_per_user', 1) or 1),
+            int(data.get('min_level', 0) or 0),
+            1 if data.get('vip_only') else 0,
+            1 if data.get('new_users_only') else 0,
+            data.get('expires_at'),
+            data.get('description') or '',
+            created_by,
+        ),
+    )
+    db.commit()
+    return True, f'✅ Промокод <b>{code}</b> создан!\n\n{build_promo_wizard_summary(data)}'
+
+def redeem_promocode(user_id, code):
+    code = normalize_promo_code(code)
+    if not code:
+        return False, '❌ Введите промокод.'
+    if not get_user(user_id):
+        return False, '❌ Профиль не найден. Нажмите /start'
+    promo = get_promocode(code)
+    if not promo:
+        return False, '❌ Промокод не найден.'
+    if promo['is_active'] is not None and promo['is_active'] == 0:
+        return False, '❌ Промокод деактивирован.'
+    expires_at = promo['expires_at']
+    if expires_at:
+        try:
+            if datetime.now() > datetime.fromisoformat(expires_at):
+                return False, '❌ Срок действия промокода истёк.'
+        except Exception:
+            pass
+    used = get_promocode_usage_count(code)
+    max_act = promo['activations'] or 0
+    if max_act > 0 and used >= max_act:
+        return False, '❌ Лимит активаций промокода исчерпан.'
+    max_per_user = promo['max_per_user'] if promo['max_per_user'] else 1
+    if get_user_promo_activations(code, user_id) >= max_per_user:
+        return False, '❌ Вы уже использовали этот промокод.'
+    level, exp = get_user_level(user_id)
+    min_level = promo['min_level'] or 0
+    if min_level > 0 and level < min_level:
+        return False, f'❌ Промокод доступен с {min_level} уровня.'
+    if promo['vip_only'] and not is_vip(user_id):
+        return False, '❌ Промокод только для VIP.'
+    if promo['new_users_only']:
+        c = get_cursor()
+        c.execute('SELECT COUNT(*) FROM promocodeactivations WHERE userId = ?', (user_id,))
+        if (c.fetchone()[0] or 0) > 0 or level > 1 or exp > 50:
+            return False, '❌ Промокод только для новых игроков.'
+    rewards = []
+    rub = promo['reward_rub'] if promo['reward_rub'] else (promo['sum'] or 0)
+    if rub and rub > 0:
+        add_transaction_rub(user_id, rub, 'promocode', f'Промокод {code}')
+        rewards.append(f'{rub:.2f} ₽')
+    if promo['reward_crf'] and promo['reward_crf'] > 0:
+        add_transaction_crf(user_id, promo['reward_crf'], 'promocode', f'Промокод {code}')
+        rewards.append(f'{promo["reward_crf"]:.2f} CRF')
+    if promo['reward_exp'] and promo['reward_exp'] > 0:
+        add_exp(user_id, promo['reward_exp'])
+        rewards.append(f'+{promo["reward_exp"]} опыта')
+    if promo['reward_vip_days'] and promo['reward_vip_days'] > 0:
+        grant_vip_days(user_id, promo['reward_vip_days'])
+        rewards.append(f'VIP {promo["reward_vip_days"]} дн.')
+    if promo['reward_level'] and promo['reward_level'] > 0:
+        update_field(user_id, 'level', promo['reward_level'])
+        rewards.append(f'уровень {promo["reward_level"]}')
+    if promo['reward_ref_level'] and promo['reward_ref_level'] > 0:
+        update_field(user_id, 'ref_level', promo['reward_ref_level'])
+        rewards.append(f'реф. ур. {promo["reward_ref_level"]}')
+    if promo['reward_elo'] and promo['reward_elo'] > 0:
+        elo = get_field(user_id, 'elo_rating', 1200) or 1200
+        update_field(user_id, 'elo_rating', elo + promo['reward_elo'])
+        rewards.append(f'+{promo["reward_elo"]} Elo')
+    if not rewards:
+        return False, '❌ У промокода нет наград.'
+    c = get_cursor()
+    c.execute('INSERT INTO promocodeactivations (hash, userId) VALUES (?, ?)', (code, user_id))
+    db.commit()
+    return True, f'🎉 Промокод <b>{code}</b> активирован!\n\nВы получили:\n• ' + '\n• '.join(rewards)
+
+def list_promocodes(limit=20):
+    c = get_cursor()
+    c.execute('SELECT * FROM promocodes ORDER BY id DESC LIMIT ?', (limit,))
+    return c.fetchall()
+
+def delete_promocode(promo_id):
+    c = get_cursor()
+    c.execute('SELECT hash FROM promocodes WHERE id = ?', (promo_id,))
+    row = c.fetchone()
+    if not row:
+        return False, '❌ Промокод не найден.'
+    code = row['hash']
+    c.execute('DELETE FROM promocodeactivations WHERE hash = ?', (code,))
+    c.execute('DELETE FROM promocodes WHERE id = ?', (promo_id,))
+    db.commit()
+    return True, f'✅ Промокод {code} удалён.'
+
+def set_promocode_active(promo_id, active):
+    c = get_cursor()
+    c.execute('UPDATE promocodes SET is_active = ? WHERE id = ?', (1 if active else 0, promo_id))
+    if c.rowcount == 0:
+        return False, '❌ Промокод не найден.'
+    db.commit()
+    return True, '✅ Статус промокода обновлён.'
+
+PROMO_WIZARD_STEPS = [
+    ('code', 'Введите текст промокода (например SUMMER2026):'),
+    ('activations', 'Сколько всего активаций? (0 = без лимита):'),
+    ('max_per_user', 'Сколько раз один игрок может активировать? (обычно 1):'),
+    ('reward_rub', 'Награда в ₽ (0 — пропустить):'),
+    ('reward_crf', 'Награда в CRF (0 — пропустить):'),
+    ('reward_exp', 'Награда опытом (0 — пропустить):'),
+    ('reward_vip_days', 'VIP на сколько дней? (0 — пропустить):'),
+    ('reward_level', 'Выдать уровень (число, 0 — не менять):'),
+    ('reward_ref_level', 'Реф. уровень (число, 0 — не менять):'),
+    ('reward_elo', 'Бонус Elo (число, 0 — пропустить):'),
+    ('min_level', 'Мин. уровень для активации (0 — без ограничения):'),
+    ('vip_only', 'Только VIP? (да / нет):'),
+    ('new_users_only', 'Только новые игроки? (да / нет):'),
+    ('expire_days', 'Срок действия в днях (0 — бессрочно):'),
+    ('description', 'Описание для себя (или «-» чтобы пропустить):'),
+]
+
+def admin_promo_menu_kb():
+    kb = InlineKeyboardMarkup(row_width=1)
+    kb.add(InlineKeyboardButton('➕ Создать промокод', callback_data='admin_promo_create'))
+    kb.add(InlineKeyboardButton('📋 Список промокодов', callback_data='admin_promo_list'))
+    kb.add(InlineKeyboardButton('🔙 Назад', callback_data='admin_refresh'))
+    return kb
+
+def process_admin_promo_wizard(m):
+    user_id = m.from_user.id
+    st = user_states.get(user_id, {})
+    step = st.get('step', 'code')
+    data = st.setdefault('data', {})
+    text = (m.text or '').strip()
+
+    if step == 'code':
+        code = normalize_promo_code(text)
+        if len(code) < 3:
+            safe_send(m.chat.id, '❌ Код минимум 3 символа.', reply_markup=cancel_kb())
+            return
+        if get_promocode(code):
+            safe_send(m.chat.id, '❌ Такой код уже есть.', reply_markup=cancel_kb())
+            return
+        data['code'] = code
+    elif step in ('activations', 'max_per_user', 'reward_exp', 'reward_vip_days', 'reward_level',
+                  'reward_ref_level', 'reward_elo', 'min_level', 'expire_days'):
+        try:
+            val = int(text)
+        except Exception:
+            safe_send(m.chat.id, '❌ Введите целое число.', reply_markup=cancel_kb())
+            return
+        if val < 0:
+            safe_send(m.chat.id, '❌ Число не может быть отрицательным.', reply_markup=cancel_kb())
+            return
+        data[step] = val
+        if step == 'expire_days':
+            data['expires_at'] = (datetime.now() + timedelta(days=val)).isoformat() if val > 0 else None
+    elif step in ('reward_rub', 'reward_crf'):
+        try:
+            val = float(text.replace(',', '.'))
+        except Exception:
+            safe_send(m.chat.id, '❌ Введите число.', reply_markup=cancel_kb())
+            return
+        if val < 0:
+            safe_send(m.chat.id, '❌ Число не может быть отрицательным.', reply_markup=cancel_kb())
+            return
+        data[step] = val
+    elif step in ('vip_only', 'new_users_only'):
+        data[step] = text.lower() in ('да', 'yes', '1', 'y', 'д')
+    elif step == 'description':
+        data['description'] = '' if text in ('-', '—', 'нет', 'no') else text
+    else:
+        del user_states[user_id]
+        safe_send(m.chat.id, '❌ Ошибка мастера.', reply_markup=admin_kb())
+        return
+
+    step_names = [s[0] for s in PROMO_WIZARD_STEPS]
+    try:
+        idx = step_names.index(step)
+    except ValueError:
+        del user_states[user_id]
+        return
+    if idx + 1 >= len(PROMO_WIZARD_STEPS):
+        summary = build_promo_wizard_summary(data)
+        kb = InlineKeyboardMarkup()
+        kb.row(
+            InlineKeyboardButton('✅ Создать', callback_data='admin_promo_confirm'),
+            InlineKeyboardButton('❌ Отмена', callback_data='admin_promo_cancel'),
+        )
+        user_states[user_id] = {'state': 'admin_promo_wizard', 'step': 'confirm', 'data': data}
+        safe_send(m.chat.id, f'📋 Проверьте промокод:\n\n{summary}', parse_mode='HTML', reply_markup=kb)
+        return
+    next_step = step_names[idx + 1]
+    user_states[user_id] = {'state': 'admin_promo_wizard', 'step': next_step, 'data': data}
+    prompt = PROMO_WIZARD_STEPS[idx + 1][1]
+    safe_send(m.chat.id, prompt, reply_markup=cancel_kb())
 
 def get_crf_rate():
     c = get_cursor()
@@ -1694,7 +2048,8 @@ def cancel_kb():
 def cabinet_kb():
     kb = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
     kb.row('💸 Вывести ₽', '💳 Пополнить')
-    kb.row('📊 История', '🔙 Назад')
+    kb.row('🎟️ Промокод', '📊 История')
+    kb.row('🔙 Назад')
     return kb
 
 def exchange_kb():
@@ -1775,6 +2130,9 @@ def admin_kb():
     )
     kb.row(
     InlineKeyboardButton('📋 Список заданий (с управлением)', callback_data='admin_tasks_list')
+    )
+    kb.row(
+    InlineKeyboardButton('🎟️ Промокоды', callback_data='admin_promo_menu')
     )
     return kb
 
@@ -2045,6 +2403,19 @@ def handle_states(m):
         if not success and not str(msg).startswith('❌'):
             msg = f'❌ {msg}'
         safe_send(m.chat.id, msg, reply_markup=duel_kb())
+        return
+
+    elif state == 'promo_redeem':
+        success, msg = redeem_promocode(user_id, m.text)
+        del user_states[user_id]
+        safe_send(m.chat.id, msg, parse_mode='HTML', reply_markup=cabinet_kb())
+        return
+
+    elif state == 'admin_promo_wizard':
+        if user_states[user_id].get('step') == 'confirm':
+            safe_send(m.chat.id, 'Нажмите «✅ Создать» или «❌ Отмена» под сообщением выше.', reply_markup=cancel_kb())
+            return
+        process_admin_promo_wizard(m)
         return
 
     elif state == 'promo_mailing_users':
@@ -3918,7 +4289,116 @@ def callback_handler(call):
         safe_answer(call.id)
         return
 
+    if data == 'admin_promo_menu':
+        safe_send(
+            chat_id,
+            '🎟️ <b>ПРОМОКОДЫ</b>\n\nСоздавайте коды с любыми наградами:\n'
+            '₽, CRF, опыт, VIP, уровень, реф. уровень, Elo и ограничения.',
+            parse_mode='HTML',
+            reply_markup=admin_promo_menu_kb(),
+        )
+        safe_answer(call.id)
+        return
+
+    if data == 'admin_promo_create':
+        user_states[user_id] = {
+            'state': 'admin_promo_wizard',
+            'step': 'code',
+            'data': {},
+        }
+        safe_send(chat_id, PROMO_WIZARD_STEPS[0][1], reply_markup=cancel_kb())
+        safe_answer(call.id)
+        return
+
+    if data == 'admin_promo_cancel':
+        if user_id in user_states:
+            del user_states[user_id]
+        safe_send(chat_id, '❌ Создание промокода отменено.', reply_markup=admin_promo_menu_kb())
+        safe_answer(call.id)
+        return
+
+    if data == 'admin_promo_confirm':
+        st = user_states.get(user_id, {})
+        data_payload = st.get('data')
+        if not data_payload or not data_payload.get('code'):
+            safe_answer(call.id, '❌ Данные утеряны. Создайте заново.', alert=True)
+            return
+        success, msg = create_promocode_record(data_payload, user_id)
+        del user_states[user_id]
+        safe_send(chat_id, msg, parse_mode='HTML', reply_markup=admin_promo_menu_kb())
+        safe_answer(call.id, '✅' if success else '❌', alert=not success)
+        return
+
+    if data == 'admin_promo_list':
+        promos = list_promocodes(25)
+        if not promos:
+            safe_send(chat_id, '📭 Промокодов нет.', reply_markup=admin_promo_menu_kb())
+            safe_answer(call.id)
+            return
+        text = '📋 <b>ПРОМОКОДЫ</b>\n\n'
+        kb = InlineKeyboardMarkup(row_width=2)
+        for p in promos:
+            used = get_promocode_usage_count(p['hash'])
+            limit = '∞' if not p['activations'] else str(p['activations'])
+            active = '✅' if (p['is_active'] is None or p['is_active'] == 1) else '⛔'
+            text += (
+                f"{active} <b>{p['hash']}</b> — {used}/{limit}\n"
+                f"   🎁 {format_promo_rewards(p)}\n"
+            )
+            if p['description']:
+                text += f"   📝 {p['description']}\n"
+            text += '\n'
+            toggle = 'off' if (p['is_active'] is None or p['is_active'] == 1) else 'on'
+            kb.row(
+                InlineKeyboardButton(f'⛔ {p["hash"]}', callback_data=f'admin_promo_toggle_{p["id"]}_{toggle}'),
+                InlineKeyboardButton(f'🗑 {p["id"]}', callback_data=f'admin_promo_del_{p["id"]}'),
+            )
+        kb.add(InlineKeyboardButton('🔙 Назад', callback_data='admin_promo_menu'))
+        if len(text) > 4000:
+            text = text[:3990] + '…'
+        safe_send(chat_id, text, parse_mode='HTML', reply_markup=kb)
+        safe_answer(call.id)
+        return
+
+    if data.startswith('admin_promo_del_'):
+        try:
+            promo_id = int(data.split('_')[3])
+        except Exception:
+            safe_answer(call.id, '❌ Ошибка', alert=True)
+            return
+        success, msg = delete_promocode(promo_id)
+        safe_answer(call.id, msg, alert=not success)
+        if success:
+            safe_send(chat_id, msg, reply_markup=admin_promo_menu_kb())
+        return
+
+    if data.startswith('admin_promo_toggle_'):
+        parts = data.split('_')
+        try:
+            promo_id = int(parts[3])
+            mode = parts[4]
+        except Exception:
+            safe_answer(call.id, '❌ Ошибка', alert=True)
+            return
+        success, msg = set_promocode_active(promo_id, mode == 'on')
+        safe_answer(call.id, msg, alert=not success)
+        if success:
+            safe_send(chat_id, msg, reply_markup=admin_promo_menu_kb())
+        return
+
     safe_answer(call.id)
+
+
+@bot.message_handler(func=lambda m: m.text == '🎟️ Промокод')
+def promo_redeem_btn(m):
+    user_id = m.from_user.id
+    user_states[user_id] = {'state': 'promo_redeem'}
+    safe_send(
+        m.chat.id,
+        '🎟️ <b>ПРОМОКОД</b>\n\nВведите код промокода:',
+        parse_mode='HTML',
+        reply_markup=cancel_kb(),
+    )
 
 
 @bot.message_handler(func=lambda m: m.text == '💸 Вывести ₽')
@@ -4052,7 +4532,7 @@ init_db()
 
 
 if __name__ == '__main__':
-    print('🤖 CRYPTO COINREF BOT v124.0')
+    print('🤖 CRYPTO COINREF BOT v124.1')
     print(f'📂 База: {DB_PATH}')
     print(f'👑 Админы: {ADMIN_IDS}')
     try:

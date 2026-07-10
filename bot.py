@@ -450,6 +450,10 @@ def init_db():
     cols = [row[1] for row in c.fetchall()]
     if 'claimed' not in cols:
         c.execute('ALTER TABLE user_daily_progress ADD COLUMN claimed INTEGER DEFAULT 0')
+    c.execute("PRAGMA table_info(tasks)")
+    task_cols = [row[1] for row in c.fetchall()]
+    if task_cols and 'active' not in task_cols:
+        c.execute('ALTER TABLE tasks ADD COLUMN active INTEGER DEFAULT 1')
     db.commit()
     print(f"✅ База данных готова ({DB_PATH})")
 
@@ -1331,6 +1335,91 @@ def claim_daily_reward(user_id, task_id):
     db.commit()
     return True, f"✅ Вы получили {row['reward_money']:.2f} CRF и {row['reward_exp']} опыта!"
 
+def get_subscription_tasks(user_id):
+    c = get_cursor()
+    c.execute('SELECT * FROM tasks WHERE COALESCE(active, 1) = 1 ORDER BY id ASC')
+    rows = c.fetchall()
+    result = []
+    for t in rows:
+        c.execute('SELECT 1 FROM user_tasks WHERE user_id = ? AND task_id = ?', (user_id, t['id']))
+        result.append({
+            'id': t['id'],
+            'channel': t['channel'],
+            'reward': t['reward'],
+            'completed': c.fetchone() is not None,
+        })
+    return result
+
+def claim_subscription_task(user_id, task_id):
+    c = get_cursor()
+    c.execute('SELECT * FROM tasks WHERE id = ? AND COALESCE(active, 1) = 1', (task_id,))
+    task = c.fetchone()
+    if not task:
+        return False, "❌ Задание не найдено."
+    c.execute('SELECT 1 FROM user_tasks WHERE user_id = ? AND task_id = ?', (user_id, task_id))
+    if c.fetchone():
+        return False, "❌ Награда уже получена."
+    channel = clean_channel(task['channel'])
+    if not channel:
+        return False, "❌ Некорректный канал задания."
+    try:
+        member = bot.get_chat_member(f'@{channel}', user_id)
+        if member.status in ['left', 'kicked']:
+            return False, f"❌ Вы не подписаны на @{channel}"
+    except Exception:
+        return False, f"❌ Не удалось проверить подписку на @{channel}. Бот должен быть админом канала."
+    c.execute('INSERT INTO user_tasks (user_id, task_id) VALUES (?, ?)', (user_id, task_id))
+    add_transaction_crf(user_id, task['reward'], 'task_subscribe', f'Подписка на @{channel}')
+    add_exp(user_id, CONFIG.get('exp_per_task', 15))
+    db.commit()
+    return True, f"✅ Вы получили {task['reward']:.2f} CRF за подписку на @{channel}!"
+
+def build_tasks_message(user_id):
+    daily = get_daily_tasks(user_id)
+    subs = get_subscription_tasks(user_id)
+    if not daily and not subs:
+        return None, None, False
+    text = ""
+    kb = InlineKeyboardMarkup()
+    if daily:
+        text += "📋 ЕЖЕДНЕВНЫЕ ЗАДАНИЯ\n\n"
+        for task in daily:
+            if task['completed'] and task['claimed']:
+                status = "✅"
+            elif task['completed'] and not task['claimed']:
+                status = "🔄 Готово!"
+            else:
+                status = f"🔄 {task['progress']}/{task['target']}"
+            text += (
+                f"{status} {task['text']}\n"
+                f"Награда: +{task['reward_money']:.2f} CRF, +{task['reward_exp']} опыта\n\n"
+            )
+            if task['completed'] and not task['claimed']:
+                kb.add(
+                    InlineKeyboardButton(
+                        f'🎁 Забрать награду #{task["id"]}',
+                        callback_data=f'claim_task_{task["id"]}',
+                    )
+                )
+    if subs:
+        if daily:
+            text += "━━━━━━━━━━━━━━━━━━━━━\n\n"
+        text += "📢 ЗАДАНИЯ С ПОДПИСКОЙ\n\n"
+        for task in subs:
+            channel = clean_channel(task['channel'])
+            if task['completed']:
+                text += f"✅ @{channel} — {task['reward']:.2f} CRF (выполнено)\n\n"
+            else:
+                text += f"📢 Подпишитесь на @{channel} — награда {task['reward']:.2f} CRF\n\n"
+                kb.add(InlineKeyboardButton(f'📢 @{channel}', url=f'https://t.me/{channel}'))
+                kb.add(
+                    InlineKeyboardButton(
+                        f'✅ Проверить подписку #{task["id"]}',
+                        callback_data=f'check_sub_task_{task["id"]}',
+                    )
+                )
+    return text, kb, True
+
     # ============================================================
     # 9. МЕНЮ (ВСЁ В ГЛАВНОМ МЕНЮ – REPLY-КНОПКИ)
     # ============================================================
@@ -2131,6 +2220,21 @@ def callback_handler(call):
             safe_answer(call.id, "❌ Вы ещё не подписались на все каналы!", alert=True)
         return
 
+    if data.startswith('check_sub_task_'):
+        try:
+            task_id = int(data.split('_')[3])
+        except Exception:
+            safe_answer(call.id, "❌ Некорректное задание.", alert=True)
+            return
+        success, msg = claim_subscription_task(user_id, task_id)
+        safe_answer(call.id, msg, alert=True)
+        text, kb, has_tasks = build_tasks_message(user_id)
+        if has_tasks:
+            safe_send(chat_id, text, parse_mode='HTML', reply_markup=kb if kb.keyboard else main_menu(user_id))
+        else:
+            safe_send(chat_id, "📭 Активных заданий нет.", reply_markup=main_menu(user_id))
+        return
+
     if data.startswith('claim_task_'):
         try:
             task_id = int(data.split('_')[2])
@@ -2139,31 +2243,11 @@ def callback_handler(call):
             return
         success, msg = claim_daily_reward(user_id, task_id)
         safe_answer(call.id, msg, alert=True)
-        tasks = get_daily_tasks(user_id)
-        if tasks:
-            text = "📋 ЕЖЕДНЕВНЫЕ ЗАДАНИЯ\n\n"
-            kb = InlineKeyboardMarkup()
-            for task in tasks:
-                if task['completed'] and task['claimed']:
-                    status = "✅"
-                elif task['completed'] and not task['claimed']:
-                    status = "🔄 Готово!"
-                else:
-                    status = f"🔄 {task['progress']}/{task['target']}"
-                text += (
-                    f"{status} {task['text']}\n"
-                    f"Награда: +{task['reward_money']:.2f} CRF, +{task['reward_exp']} опыта\n\n"
-                )
-                if task['completed'] and not task['claimed']:
-                    kb.add(
-                        InlineKeyboardButton(
-                            f'🎁 Забрать награду #{task["id"]}',
-                            callback_data=f'claim_task_{task["id"]}',
-                        )
-                    )
+        text, kb, has_tasks = build_tasks_message(user_id)
+        if has_tasks:
             safe_send(chat_id, text, parse_mode='HTML', reply_markup=kb if kb.keyboard else main_menu(user_id))
         else:
-            safe_send(chat_id, "📭 Сегодня заданий нет.")
+            safe_send(chat_id, "📭 Сегодня заданий нет.", reply_markup=main_menu(user_id))
         return
 
     if data.startswith('duel_accept_'):
@@ -2629,7 +2713,7 @@ def callback_handler(call):
 
     if data == 'admin_tasks_list':
         c = get_cursor()
-        c.execute('SELECT * FROM tasks WHERE active = 1 ORDER BY id ASC')
+        c.execute('SELECT * FROM tasks WHERE COALESCE(active, 1) = 1 ORDER BY id ASC')
         tasks = c.fetchall()
         if not tasks:
             safe_send(chat_id, "📭 Активных заданий нет.")
@@ -3088,7 +3172,7 @@ def handle_states(m):
         safe_send(
             m.chat.id,
             f"✅ Награда для задания #{task_id} изменена на {new_reward:.2f} CRF",
-            reply_markup=main_menu(user_id),
+            reply_markup=admin_kb(),
         )
 
     elif state == 'admin_balance_rub':
@@ -3278,7 +3362,7 @@ def handle_states(m):
             return
         channel = user_states[user_id].get('channel')
         c = get_cursor()
-        c.execute('INSERT INTO tasks (channel, reward) VALUES (?, ?)', (channel, reward))
+        c.execute('INSERT INTO tasks (channel, reward, active) VALUES (?, ?, 1)', (channel, reward))
         db.commit()
         del user_states[user_id]
         safe_send(
@@ -3576,30 +3660,10 @@ def cabinet_history_btn(m):
 @bot.message_handler(func=lambda m: m.text == '📋 Задания')
 def tasks_btn(m):
     user_id = m.from_user.id
-    tasks = get_daily_tasks(user_id)
-    if not tasks:
-        safe_send(m.chat.id, "📭 Сегодня заданий нет.", reply_markup=main_menu(user_id))
+    text, kb, has_tasks = build_tasks_message(user_id)
+    if not has_tasks:
+        safe_send(m.chat.id, "📭 Активных заданий нет.", reply_markup=main_menu(user_id))
         return
-    text = "📋 ЕЖЕДНЕВНЫЕ ЗАДАНИЯ\n\n"
-    kb = InlineKeyboardMarkup()
-    for task in tasks:
-        if task['completed'] and task['claimed']:
-            status = "✅"
-        elif task['completed'] and not task['claimed']:
-            status = "🔄 Готово!"
-        else:
-            status = f"🔄 {task['progress']}/{task['target']}"
-        text += (
-            f"{status} {task['text']}\n"
-            f"Награда: +{task['reward_money']:.2f} CRF, +{task['reward_exp']} опыта\n\n"
-        )
-        if task['completed'] and not task['claimed']:
-            kb.add(
-                InlineKeyboardButton(
-                    f'🎁 Забрать награду #{task["id"]}',
-                    callback_data=f'claim_task_{task["id"]}',
-                )
-            )
     safe_send(m.chat.id, text, parse_mode='HTML', reply_markup=kb if kb.keyboard else main_menu(user_id))
 
 
@@ -3651,7 +3715,7 @@ def wheel_btn(m):
 
 
 if __name__ == '__main__':
-    print('🤖 CRYPTO COINREF BOT v123.4')
+    print('🤖 CRYPTO COINREF BOT v123.5')
     print(f'📂 База: {DB_PATH}')
     print(f'👑 Админы: {ADMIN_IDS}')
     try:

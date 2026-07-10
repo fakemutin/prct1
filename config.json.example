@@ -1,0 +1,15 @@
+{
+    "telegramBotToken": "YOUR_BOT_TOKEN_HERE",
+    "admin": "YOUR_TELEGRAM_USER_ID",
+    "moderators": "",
+    "currency": "₽",
+    "minAmount": 10.0,
+    "hellomsg": "🌟 Добро пожаловать в CRYPTO COINREF!",
+    "subscribemsg": "📢 Подпишитесь на каналы, чтобы получить доступ ко всем функциям!",
+    "replenish_card": "0000000000000000",
+    "replenish_holder": "Иванов Иван Иванович",
+    "replenish_bank": "Сбербанк",
+    "requiredChannels": "@YOUR_CHANNEL",
+    "log_chat_id": 0,
+    "db_file": ""
+}

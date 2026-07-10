@@ -70,7 +70,8 @@ def load_config():
         "commission_crf_percent": 20.0,
         "promo_channel_price_per_hour": 50.0,
         "promo_mailing_price_per_user": 0.3,
-        "exchange_commission_percent": 10.0
+        "exchange_commission_percent": 10.0,
+        "vip_exchange_commission_percent": 5.0
         }
         with open('config.json', 'w', encoding='utf-8') as f:
             json.dump(default, f, indent=4, ensure_ascii=False)
@@ -712,6 +713,11 @@ def get_commission_rate(user_id):
     if is_vip(user_id):
         return CONFIG.get('vip_market_commission', 0.05)
     return CONFIG.get('market_commission', 0.20)
+
+def get_exchange_commission_percent(user_id):
+    if is_vip(user_id):
+        return CONFIG.get('vip_exchange_commission_percent', 5.0)
+    return CONFIG.get('exchange_commission_percent', 10.0)
 
 def create_order(user_id, order_type, amount, price):
     if amount <= 0 or price <= 0:
@@ -1709,7 +1715,8 @@ def handle_states(m):
             safe_send(m.chat.id, f"❌ Недостаточно ₽. У вас {get_balance_rub(user_id):.2f}")
             return
         rate = get_crf_rate()
-        commission = amount_rub * (CONFIG.get('exchange_commission_percent', 10.0) / 100.0)
+        fee_percent = get_exchange_commission_percent(user_id)
+        commission = amount_rub * (fee_percent / 100.0)
         amount_crf = (amount_rub - commission) / rate
         add_transaction_rub(
             user_id,
@@ -1750,7 +1757,8 @@ def handle_states(m):
             safe_send(m.chat.id, f"❌ Недостаточно CRF. У вас {get_balance_crf(user_id):.2f}")
             return
         rate = get_crf_rate()
-        commission = amount_crf * (CONFIG.get('exchange_commission_percent', 10.0) / 100.0)
+        fee_percent = get_exchange_commission_percent(user_id)
+        commission = amount_crf * (fee_percent / 100.0)
         amount_rub = (amount_crf - commission) * rate
         add_transaction_crf(
             user_id,
@@ -2533,12 +2541,14 @@ def exchange_btn(m):
     user_id = m.from_user.id
     log_action(user_id, "Открыл биржу")
     rate = get_crf_rate()
+    fee_percent = get_exchange_commission_percent(user_id)
+    vip_note = ' 👑 VIP' if is_vip(user_id) else ''
     text = f"""💱 БИРЖА CRF
 
     Текущий курс: 1 CRF = {rate:.4f} ₽
 
     Здесь вы можете обменивать валюты.
-    Комиссия при обмене: 10%
+    Комиссия при обмене: {fee_percent:.1f}%{vip_note}
 
     Выберите действие:"""
     safe_send(m.chat.id, text, parse_mode='HTML', reply_markup=exchange_kb())
@@ -2623,14 +2633,24 @@ def exchange_history_btn(m):
 def exchange_rub_to_crf_btn(m):
     user_id = m.from_user.id
     rate = get_crf_rate()
-    safe_send(m.chat.id, f"🔄 Введите сумму в ₽ для обмена на CRF. Курс: 1 CRF = {rate:.4f} ₽ (комиссия 10%)", reply_markup=cancel_kb())
+    fee_percent = get_exchange_commission_percent(user_id)
+    safe_send(
+        m.chat.id,
+        f"🔄 Введите сумму в ₽ для обмена на CRF. Курс: 1 CRF = {rate:.4f} ₽ (комиссия {fee_percent:.1f}%)",
+        reply_markup=cancel_kb(),
+    )
     user_states[user_id] = {'state': 'exchange_rub_to_crf'}
 
 @bot.message_handler(func=lambda m: m.text == '🔄 Обменять CRF→₽')
 def exchange_crf_to_rub_btn(m):
     user_id = m.from_user.id
     rate = get_crf_rate()
-    safe_send(m.chat.id, f"🔄 Введите сумму в CRF для обмена на ₽. Курс: 1 CRF = {rate:.4f} ₽ (комиссия 10%)", reply_markup=cancel_kb())
+    fee_percent = get_exchange_commission_percent(user_id)
+    safe_send(
+        m.chat.id,
+        f"🔄 Введите сумму в CRF для обмена на ₽. Курс: 1 CRF = {rate:.4f} ₽ (комиссия {fee_percent:.1f}%)",
+        reply_markup=cancel_kb(),
+    )
     user_states[user_id] = {'state': 'exchange_crf_to_rub'}
 
 @bot.message_handler(func=lambda m: m.text in ('🔙 Назад', '⬅️ Назад'))
@@ -2820,6 +2840,7 @@ def vip_menu_btn(m):
         Осталось: {format_time_remaining(remaining)}
 
         Преимущества VIP:
+        ✅ Комиссия на бирже – 5% (вместо 10%)
         ✅ Комиссия на рынке – 5% (вместо 20%)
         ✅ Безлимит дуэлей
         ✅ Шанс 15% получить 0.10-0.30 CRF за победу в дуэли
@@ -2833,6 +2854,7 @@ def vip_menu_btn(m):
 
         VIP даёт мощные преимущества на 30 дней:
 
+        ✅ Комиссия на бирже – 5% (вместо 10%)
         ✅ Комиссия на рынке – 5% (вместо 20%)
         ✅ Безлимит дуэлей
         ✅ Шанс 15% получить 0.10-0.30 CRF за победу в дуэли
@@ -3894,7 +3916,7 @@ def wheel_btn(m):
 
 
 if __name__ == '__main__':
-    print('🤖 CRYPTO COINREF BOT v123.8')
+    print('🤖 CRYPTO COINREF BOT v123.9')
     print(f'📂 База: {DB_PATH}')
     print(f'👑 Админы: {ADMIN_IDS}')
     try:

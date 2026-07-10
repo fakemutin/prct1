@@ -570,6 +570,11 @@ def init_db():
     channel TEXT,
     PRIMARY KEY (user_id, channel)
     )''')
+    c.execute('''CREATE TABLE IF NOT EXISTS bot_moderators (
+    user_id INTEGER PRIMARY KEY,
+    added_by INTEGER,
+    added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )''')
     c.execute('''CREATE TABLE IF NOT EXISTS stats (
     key TEXT PRIMARY KEY,
     value REAL DEFAULT 0
@@ -593,6 +598,15 @@ def init_db():
             c.execute(f'ALTER TABLE users ADD COLUMN {col}')
     migrate_duels_schema()
     migrate_promocodes_schema()
+    c.execute('SELECT user_id FROM bot_moderators')
+    existing_mods = {row[0] for row in c.fetchall()}
+    for mid in MODERATOR_IDS:
+        if mid not in existing_mods:
+            c.execute(
+                'INSERT OR IGNORE INTO bot_moderators (user_id, added_by) VALUES (?, ?)',
+                (mid, 0),
+            )
+    db.commit()
     c.execute('SELECT COUNT(*) FROM crf_rate')
     if c.fetchone()[0] == 0:
         c.execute('INSERT INTO crf_rate (rate) VALUES (?)', (CONFIG.get('crf_initial_rate', 0.01),))
@@ -680,8 +694,123 @@ def log_action(user_id, action, details=''):
 def is_admin(user_id):
     return user_id in ADMIN_IDS
 
+def get_moderator_ids():
+    ids = set(MODERATOR_IDS)
+    c = get_cursor()
+    c.execute('SELECT user_id FROM bot_moderators')
+    for row in c.fetchall():
+        ids.add(row['user_id'])
+    return ids
+
 def is_moderator(user_id):
-    return user_id in MODERATOR_IDS or is_admin(user_id)
+    return is_admin(user_id) or user_id in get_moderator_ids()
+
+def resolve_user_identifier(raw):
+    raw = (raw or '').strip()
+    if not raw:
+        return None, '❌ Пустой ввод.'
+    if raw.isdigit():
+        return int(raw), None
+    username = raw.lstrip('@').strip()
+    if not username:
+        return None, '❌ Некорректный username.'
+    c = get_cursor()
+    c.execute('SELECT chatId, firstName, username FROM users WHERE LOWER(username) = LOWER(?)', (username,))
+    row = c.fetchone()
+    if row:
+        return row['chatId'], None
+    try:
+        chat = bot.get_chat(f'@{username}')
+        return chat.id, None
+    except Exception:
+        return None, f'❌ Пользователь @{username} не найден. Укажите числовой ID.'
+
+def format_user_brief(user_id):
+    user = get_user(user_id)
+    if user:
+        name = user['firstName'] or str(user_id)
+        uname = user['username']
+        return f'{name} (@{uname})' if uname else f'{name} (id {user_id})'
+    return str(user_id)
+
+def add_bot_moderator(target_id, by_admin_id):
+    if is_admin(target_id):
+        return False, '❌ Админы уже имеют полный доступ.'
+    if target_id in get_moderator_ids():
+        return False, f'❌ {format_user_brief(target_id)} уже модератор.'
+    c = get_cursor()
+    c.execute(
+        'INSERT OR REPLACE INTO bot_moderators (user_id, added_by, added_at) VALUES (?, ?, CURRENT_TIMESTAMP)',
+        (target_id, by_admin_id),
+    )
+    db.commit()
+    safe_send(
+        target_id,
+        '🛡️ Вам выдан доступ к <b>модератор-панели</b>!\n\n'
+        'Откройте главное меню — появится кнопка «🛡️ Модератор-панель».',
+        parse_mode='HTML',
+        reply_markup=main_menu(target_id),
+    )
+    return True, f'✅ Модератор выдан: {format_user_brief(target_id)} (id {target_id})'
+
+def remove_bot_moderator(target_id):
+    if target_id in MODERATOR_IDS:
+        return False, '❌ Этот модератор прописан в config.json — удалите его оттуда вручную.'
+    if is_admin(target_id):
+        return False, '❌ Нельзя снять права с администратора.'
+    c = get_cursor()
+    c.execute('DELETE FROM bot_moderators WHERE user_id = ?', (target_id,))
+    if c.rowcount == 0:
+        return False, f'❌ {format_user_brief(target_id)} не является модератором.'
+    db.commit()
+    safe_send(
+        target_id,
+        '⛔ Доступ к модератор-панели отключён.',
+        reply_markup=main_menu(target_id),
+    )
+    return True, f'✅ Модератор снят: {format_user_brief(target_id)} (id {target_id})'
+
+def list_bot_moderators():
+    result = []
+    c = get_cursor()
+    c.execute(
+        '''
+        SELECT bm.user_id, bm.added_by, bm.added_at, u.firstName, u.username
+        FROM bot_moderators bm
+        LEFT JOIN users u ON u.chatId = bm.user_id
+        ORDER BY bm.added_at DESC
+        '''
+    )
+    for row in c.fetchall():
+        result.append({
+            'user_id': row['user_id'],
+            'firstName': row['firstName'],
+            'username': row['username'],
+            'added_by': row['added_by'],
+            'added_at': row['added_at'],
+            'from_config': False,
+        })
+    seen = {r['user_id'] for r in result}
+    for mid in MODERATOR_IDS:
+        if mid not in seen:
+            user = get_user(mid)
+            result.append({
+                'user_id': mid,
+                'firstName': user['firstName'] if user else None,
+                'username': user['username'] if user else None,
+                'added_by': 0,
+                'added_at': None,
+                'from_config': True,
+            })
+    return result
+
+def admin_mod_menu_kb():
+    kb = InlineKeyboardMarkup(row_width=1)
+    kb.add(InlineKeyboardButton('➕ Выдать модератора', callback_data='admin_mod_grant'))
+    kb.add(InlineKeyboardButton('➖ Снять модератора', callback_data='admin_mod_revoke'))
+    kb.add(InlineKeyboardButton('📋 Список модераторов', callback_data='admin_mod_list'))
+    kb.add(InlineKeyboardButton('🔙 Назад', callback_data='admin_refresh'))
+    return kb
 
 def get_user(user_id):
     c = get_cursor()
@@ -2134,6 +2263,9 @@ def admin_kb():
     kb.row(
     InlineKeyboardButton('🎟️ Промокоды', callback_data='admin_promo_menu')
     )
+    kb.row(
+    InlineKeyboardButton('🛡️ Модераторы', callback_data='admin_mod_menu')
+    )
     return kb
 
 def moderator_kb():
@@ -2808,6 +2940,26 @@ def handle_states(m):
                 failed += 1
         del user_states[user_id]
         safe_send(m.chat.id, f"✅ Рассылка завершена! Не доставлено: {failed}", reply_markup=main_menu(user_id))
+
+    elif state == 'admin_mod_grant':
+        target_id, err = resolve_user_identifier(m.text)
+        if err:
+            safe_send(m.chat.id, err, reply_markup=cancel_kb())
+            return
+        success, msg = add_bot_moderator(target_id, user_id)
+        del user_states[user_id]
+        safe_send(m.chat.id, msg, reply_markup=admin_mod_menu_kb())
+        return
+
+    elif state == 'admin_mod_revoke':
+        target_id, err = resolve_user_identifier(m.text)
+        if err:
+            safe_send(m.chat.id, err, reply_markup=cancel_kb())
+            return
+        success, msg = remove_bot_moderator(target_id)
+        del user_states[user_id]
+        safe_send(m.chat.id, msg, reply_markup=admin_mod_menu_kb())
+        return
 
     elif state == 'mod_ban':
         try:
@@ -3838,7 +3990,7 @@ def callback_handler(call):
         return
 
     is_admin_user = user_id in ADMIN_IDS
-    is_moderator_user = user_id in MODERATOR_IDS or is_admin_user
+    is_moderator_user = is_moderator(user_id)
 
     if data.startswith('admin_') and not is_admin_user:
         safe_answer(call.id, '⛔ Доступ запрещён!', alert=True)
@@ -4386,6 +4538,56 @@ def callback_handler(call):
             safe_send(chat_id, msg, reply_markup=admin_promo_menu_kb())
         return
 
+    if data == 'admin_mod_menu':
+        safe_send(
+            chat_id,
+            '🛡️ <b>МОДЕРАТОРЫ</b>\n\n'
+            'Выдайте или снимите доступ к модератор-панели по Telegram ID или @username.',
+            parse_mode='HTML',
+            reply_markup=admin_mod_menu_kb(),
+        )
+        safe_answer(call.id)
+        return
+
+    if data == 'admin_mod_grant':
+        user_states[user_id] = {'state': 'admin_mod_grant'}
+        safe_send(
+            chat_id,
+            '➕ Введите <b>ID</b> или <b>@username</b> пользователя для выдачи модератора:',
+            parse_mode='HTML',
+            reply_markup=cancel_kb(),
+        )
+        safe_answer(call.id)
+        return
+
+    if data == 'admin_mod_revoke':
+        user_states[user_id] = {'state': 'admin_mod_revoke'}
+        safe_send(
+            chat_id,
+            '➖ Введите <b>ID</b> или <b>@username</b> для снятия модератора:',
+            parse_mode='HTML',
+            reply_markup=cancel_kb(),
+        )
+        safe_answer(call.id)
+        return
+
+    if data == 'admin_mod_list':
+        mods = list_bot_moderators()
+        if not mods:
+            safe_send(chat_id, '📭 Модераторов нет.', reply_markup=admin_mod_menu_kb())
+            safe_answer(call.id)
+            return
+        text = '📋 <b>СПИСОК МОДЕРАТОРОВ</b>\n\n'
+        for m in mods:
+            name = m['firstName'] or str(m['user_id'])
+            uname = f"@{m['username']}" if m['username'] else ''
+            src = ' (config.json)' if m.get('from_config') else ''
+            text += f"• {name} {uname} — id <code>{m['user_id']}</code>{src}\n"
+        text += '\n<i>Из config.json снимаются только вручную в файле.</i>'
+        safe_send(chat_id, text, parse_mode='HTML', reply_markup=admin_mod_menu_kb())
+        safe_answer(call.id)
+        return
+
     safe_answer(call.id)
 
 
@@ -4532,7 +4734,7 @@ init_db()
 
 
 if __name__ == '__main__':
-    print('🤖 CRYPTO COINREF BOT v124.1')
+    print('🤖 CRYPTO COINREF BOT v124.2')
     print(f'📂 База: {DB_PATH}')
     print(f'👑 Админы: {ADMIN_IDS}')
     try:

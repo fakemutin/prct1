@@ -1018,6 +1018,13 @@ def create_duel(user_id, amount, mode='classic'):
         return False, "❌ Минимальная ставка 1 ₽"
     if get_balance_rub(user_id) < amount:
         return False, f"❌ Недостаточно средств. Нужно {amount:.2f} ₽"
+    expire_stale_duels()
+    existing = get_user_waiting_duel(user_id)
+    if existing:
+        return False, (
+            f"❌ У вас уже есть дуэль #{existing['id']} в ожидании ({existing['amount']:.2f} ₽). "
+            "Откройте «📋 Активные дуэли» → «Отменить мою дуэль» или дождитесь соперника."
+        )
     add_transaction_rub(user_id, -amount, 'duel_hold', f'Создание дуэли')
     c = get_cursor()
     c.execute('''
@@ -1027,6 +1034,103 @@ def create_duel(user_id, amount, mode='classic'):
     db.commit()
     duel_id = c.lastrowid
     return True, f"✅ Дуэль #{duel_id} создана! Ожидайте соперника."
+
+def expire_stale_duels(max_age_minutes=60):
+    c = get_cursor()
+    c.execute(
+        '''
+        SELECT id, creator_id, amount FROM duels
+        WHERE status = 'waiting'
+          AND created_at < datetime('now', ?)
+        ''',
+        (f'-{max_age_minutes} minutes',),
+    )
+    rows = c.fetchall()
+    for d in rows:
+        add_transaction_rub(d['creator_id'], d['amount'], 'duel_refund', f'Отмена просроченной дуэли #{d["id"]}')
+        c.execute(
+            "UPDATE duels SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+            (d['id'],),
+        )
+    if rows:
+        db.commit()
+    return len(rows)
+
+def get_user_waiting_duel(user_id):
+    expire_stale_duels()
+    c = get_cursor()
+    c.execute(
+        '''
+        SELECT * FROM duels
+        WHERE creator_id = ? AND status = 'waiting'
+          AND (opponent_id IS NULL OR opponent_id = -1)
+        ORDER BY id DESC LIMIT 1
+        ''',
+        (user_id,),
+    )
+    return c.fetchone()
+
+def cancel_duel(duel_id, by_user_id):
+    duel = get_duel(duel_id)
+    if not duel or duel['status'] != 'waiting':
+        return False, "❌ Дуэль не найдена или уже завершена."
+    if duel['creator_id'] != by_user_id:
+        return False, "❌ Можно отменить только свою дуэль."
+    c = get_cursor()
+    c.execute(
+        '''
+        UPDATE duels SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP
+        WHERE id = ? AND status = 'waiting'
+          AND (opponent_id IS NULL OR opponent_id = -1)
+        ''',
+        (duel_id,),
+    )
+    if c.rowcount == 0:
+        return False, "❌ Дуэль уже недоступна."
+    add_transaction_rub(duel['creator_id'], duel['amount'], 'duel_refund', f'Отмена дуэли #{duel_id}')
+    db.commit()
+    return True, f"✅ Дуэль #{duel_id} отменена, {duel['amount']:.2f} ₽ возвращены на баланс."
+
+def accept_duel(opponent_id, duel_id):
+    expire_stale_duels()
+    duel = get_duel(duel_id)
+    if not duel or duel['status'] != 'waiting':
+        return False, "❌ Дуэль уже недоступна (завершена или отменена)."
+    if duel['creator_id'] == opponent_id:
+        return False, "❌ Нельзя принять свою дуэль."
+    if duel['opponent_id'] not in (None, -1):
+        return False, "❌ Дуэль уже принята другим игроком."
+    amount = duel['amount']
+    if get_balance_rub(opponent_id) < amount:
+        return False, f"❌ Недостаточно средств. Нужно {amount:.2f} ₽"
+    limit_ok, limit_msg = check_duel_limit(opponent_id)
+    if not limit_ok:
+        return False, limit_msg
+    own_waiting = get_user_waiting_duel(opponent_id)
+    if own_waiting:
+        return False, (
+            f"❌ У вас уже есть дуэль #{own_waiting['id']} в ожидании. "
+            "Сначала отмените её в «📋 Активные дуэли»."
+        )
+    c = get_cursor()
+    c.execute(
+        '''
+        UPDATE duels
+        SET opponent_id = ?, status = 'active', updated_at = CURRENT_TIMESTAMP,
+            elo_opponent = (SELECT elo_rating FROM users WHERE chatId = ?)
+        WHERE id = ? AND status = 'waiting'
+          AND (opponent_id IS NULL OR opponent_id = -1)
+        ''',
+        (opponent_id, opponent_id, duel_id),
+    )
+    if c.rowcount == 0:
+        return False, "❌ Дуэль уже принята другим игроком."
+    db.commit()
+    add_transaction_rub(opponent_id, -amount, 'duel_hold', f'Принятие дуэли #{duel_id}')
+    duel = get_duel(duel_id)
+    if duel['mode'] == 'classic':
+        return resolve_classic_duel(duel_id)
+    return True, duel_id
 
 def resolve_classic_duel(duel_id):
     c = get_cursor()
@@ -1166,10 +1270,21 @@ def resolve_rps_duel(duel_id):
         db.commit()
         return True, msg
 
-def get_active_duels():
+def get_active_duels(exclude_user_id=None):
+    expire_stale_duels()
     c = get_cursor()
-    c.execute('SELECT * FROM duels WHERE status = "waiting" ORDER BY created_at')
-    return c.fetchall()
+    c.execute(
+        '''
+        SELECT * FROM duels
+        WHERE status = 'waiting'
+          AND (opponent_id IS NULL OR opponent_id = -1)
+        ORDER BY created_at ASC
+        '''
+    )
+    rows = c.fetchall()
+    if exclude_user_id is not None:
+        return [r for r in rows if r['creator_id'] != exclude_user_id]
+    return rows
 
 def get_user_duels(user_id):
     c = get_cursor()
@@ -1732,19 +1847,38 @@ def duel_rps_btn(m):
 @bot.message_handler(func=lambda m: m.text == '📋 Активные дуэли')
 def duel_list_btn(m):
     user_id = m.from_user.id
-    duels = get_active_duels()
-    if not duels:
-        safe_send(m.chat.id, "📭 Нет активных дуэлей.")
+    mine = get_user_waiting_duel(user_id)
+    duels = get_active_duels(exclude_user_id=user_id)
+    if not mine and not duels:
+        safe_send(m.chat.id, "📭 Нет активных дуэлей.", reply_markup=duel_kb())
         return
     text = "⚔️ АКТИВНЫЕ ДУЭЛИ\n\n"
     kb = InlineKeyboardMarkup(row_width=1)
-    for d in duels:
-        creator = get_user(d['creator_id'])
-        name = creator['firstName'] if creator else str(d['creator_id'])
-        text += f"#{d['id']} | {d['mode'].capitalize()} | {name} | {d['amount']:.2f} ₽\n"
-        kb.add(InlineKeyboardButton(f'Принять #{d["id"]}', callback_data=f'duel_accept_{d["id"]}'))
-        kb.add(InlineKeyboardButton('🔙 Назад', callback_data='duel_back_inline'))
-        safe_send(m.chat.id, text, parse_mode='HTML', reply_markup=kb)
+    if mine:
+        text += (
+            f"⏳ Ваша дуэль #{mine['id']} | {mine['mode'].capitalize()} | "
+            f"{mine['amount']:.2f} ₽ — ожидает соперника\n\n"
+        )
+        kb.add(
+            InlineKeyboardButton(
+                f'❌ Отменить мою дуэль #{mine["id"]}',
+                callback_data=f'duel_cancel_{mine["id"]}',
+            )
+        )
+    if duels:
+        text += "Дуэли других игроков:\n"
+        for d in duels:
+            creator = get_user(d['creator_id'])
+            name = creator['firstName'] if creator else str(d['creator_id'])
+            text += f"#{d['id']} | {d['mode'].capitalize()} | {name} | {d['amount']:.2f} ₽\n"
+            kb.add(
+                InlineKeyboardButton(
+                    f'✅ Принять #{d["id"]} ({d["amount"]:.0f} ₽)',
+                    callback_data=f'duel_accept_{d["id"]}',
+                )
+            )
+    kb.add(InlineKeyboardButton('🔙 Назад', callback_data='duel_back_inline'))
+    safe_send(m.chat.id, text, parse_mode='HTML', reply_markup=kb)
 
 @bot.message_handler(func=lambda m: m.text == '📊 Мои дуэли')
 def duel_my_btn(m):
@@ -1755,21 +1889,21 @@ def duel_my_btn(m):
         return
     text = "📊 МОИ ДУЭЛИ\n\n"
     for d in duels:
-        status = {'waiting':'⏳','active':'⚔️','finished':'✅'}.get(d['status'], '❓')
+        status = {'waiting': '⏳', 'active': '⚔️', 'finished': '✅', 'cancelled': '❌'}.get(d['status'], '❓')
         creator = get_user(d['creator_id'])
         cname = creator['firstName'] if creator else str(d['creator_id'])
         opponent = "ожидает"
-        if d['opponent_id'] != -1:
+        if d['opponent_id'] not in (None, -1):
             opp = get_user(d['opponent_id'])
             opponent = opp['firstName'] if opp else str(d['opponent_id'])
-            text += f"{status} #{d['id']} | {d['mode'].capitalize()}\n"
-            text += f"Создатель: {cname}, Соперник: {opponent}\n"
-            text += f"Ставка: {d['amount']:.2f} ₽\n"
-        if d['winner_id'] != -1:
+        text += f"{status} #{d['id']} | {d['mode'].capitalize()}\n"
+        text += f"Создатель: {cname}, Соперник: {opponent}\n"
+        text += f"Ставка: {d['amount']:.2f} ₽\n"
+        if d['winner_id'] not in (None, -1):
             win = get_user(d['winner_id'])
             text += f"Победитель: {win['firstName'] if win else str(d['winner_id'])}\n"
-            text += "━━━━━━━━━━━━━━━━\n"
-            safe_send(m.chat.id, text, parse_mode='HTML', reply_markup=duel_kb())
+        text += "━━━━━━━━━━━━━━━━\n"
+    safe_send(m.chat.id, text, parse_mode='HTML', reply_markup=duel_kb())
 
 # -------- ИНВЕСТИЦИИ --------
 @bot.message_handler(func=lambda m: m.text == '📈 Инвестиции')
@@ -2274,58 +2408,46 @@ def callback_handler(call):
             safe_send(chat_id, "📭 Сегодня заданий нет.", reply_markup=main_menu(user_id))
         return
 
+    if data.startswith('duel_cancel_'):
+        try:
+            duel_id = int(data.split('_')[2])
+        except Exception:
+            safe_answer(call.id, "❌ Некорректная дуэль.", alert=True)
+            return
+        success, msg = cancel_duel(duel_id, user_id)
+        safe_answer(call.id, msg, alert=not success)
+        if success:
+            safe_send(chat_id, msg, reply_markup=duel_kb())
+        return
+
     if data.startswith('duel_accept_'):
         try:
             duel_id = int(data.split('_')[2])
         except Exception:
             safe_answer(call.id, "❌ Некорректная дуэль.", alert=True)
             return
-        duel = get_duel(duel_id)
-        if not duel or duel['status'] != 'waiting':
-            safe_send(chat_id, "❌ Дуэль неактивна.")
-            safe_answer(call.id)
+        result = accept_duel(user_id, duel_id)
+        if result[0] is False:
+            safe_answer(call.id, result[1], alert=True)
+            safe_send(chat_id, result[1], reply_markup=duel_kb())
             return
-        if duel['creator_id'] == user_id:
-            safe_send(chat_id, "❌ Нельзя принять свою дуэль.")
-            safe_answer(call.id)
+        if result[0] is True and isinstance(result[1], int):
+            duel_id = result[1]
+            duel = get_duel(duel_id)
+            rps_kb = InlineKeyboardMarkup(row_width=3)
+            rps_kb.row(
+                InlineKeyboardButton('✊', callback_data=f'rps_{duel_id}_rock'),
+                InlineKeyboardButton('✌️', callback_data=f'rps_{duel_id}_scissors'),
+                InlineKeyboardButton('✋', callback_data=f'rps_{duel_id}_paper'),
+            )
+            safe_send(duel['creator_id'], "✊ Сделайте выбор:", reply_markup=rps_kb)
+            safe_send(user_id, "✊ Сделайте выбор:", reply_markup=rps_kb)
+            safe_send(chat_id, "⚔️ Дуэль начата! Сделайте выбор.", reply_markup=duel_kb())
+            safe_answer(call.id, "⚔️ Дуэль начата!")
             return
-        amount = duel['amount']
-        if get_balance_rub(user_id) < amount:
-            safe_send(chat_id, f"❌ Недостаточно средств. Нужно {amount:.2f} ₽")
-            safe_answer(call.id)
-            return
-        limit_ok, limit_msg = check_duel_limit(user_id)
-        if not limit_ok:
-            safe_send(chat_id, limit_msg)
-            safe_answer(call.id)
-            return
-        add_transaction_rub(user_id, -amount, 'duel_hold', f'Принятие дуэли #{duel_id}')
-        c = get_cursor()
-        c.execute(
-            '''
-            UPDATE duels
-            SET opponent_id = ?, status = 'active', updated_at = CURRENT_TIMESTAMP,
-                elo_opponent = (SELECT elo_rating FROM users WHERE chatId = ?)
-            WHERE id = ?
-            ''',
-            (user_id, user_id, duel_id),
-        )
-        db.commit()
-        if duel['mode'] == 'classic':
-            success, msg = resolve_classic_duel(duel_id)
-            safe_send(chat_id, msg, reply_markup=duel_kb())
-            safe_answer(call.id)
-            return
-        rps_kb = InlineKeyboardMarkup(row_width=3)
-        rps_kb.row(
-            InlineKeyboardButton('✊', callback_data=f'rps_{duel_id}_rock'),
-            InlineKeyboardButton('✌️', callback_data=f'rps_{duel_id}_scissors'),
-            InlineKeyboardButton('✋', callback_data=f'rps_{duel_id}_paper'),
-        )
-        safe_send(duel['creator_id'], "✊ Сделайте выбор:", reply_markup=rps_kb)
-        safe_send(user_id, "✊ Сделайте выбор:", reply_markup=rps_kb)
-        safe_send(chat_id, "⚔️ Дуэль начата, ждите выбора.", reply_markup=duel_kb())
-        safe_answer(call.id)
+        success, msg = result[0], result[1]
+        safe_send(chat_id, msg, reply_markup=duel_kb())
+        safe_answer(call.id, "✅" if success else "❌")
         return
 
     if data.startswith('rps_'):
@@ -3739,7 +3861,7 @@ def wheel_btn(m):
 
 
 if __name__ == '__main__':
-    print('🤖 CRYPTO COINREF BOT v123.6')
+    print('🤖 CRYPTO COINREF BOT v123.7')
     print(f'📂 База: {DB_PATH}')
     print(f'👑 Админы: {ADMIN_IDS}')
     try:

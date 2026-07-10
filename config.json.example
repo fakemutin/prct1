@@ -10,5 +10,6 @@
     "replenish_holder": "Иванов Иван Иванович",
     "replenish_bank": "Сбербанк",
     "requiredChannels": "@YOUR_CHANNEL",
-    "log_chat_id": 0
+    "log_chat_id": 0,
+    "db_file": ""
 }

@@ -10,6 +10,7 @@ import string
 import re
 import time
 import threading
+import os
 from datetime import datetime, timedelta
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
 
@@ -88,7 +89,42 @@ LOG_CHAT_ID = CONFIG.get('log_chat_id', 0)
 # ============================================================
 # 2. БАЗА ДАННЫХ (ПОЛНАЯ)
 # ============================================================
-db = sqlite3.connect('data.db', check_same_thread=False)
+def _count_users_in_db(path):
+    try:
+        conn = sqlite3.connect(path)
+        cur = conn.cursor()
+        cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='users'")
+        if not cur.fetchone():
+            return 0
+        cur.execute('SELECT COUNT(*) FROM users')
+        return cur.fetchone()[0] or 0
+    except Exception:
+        return 0
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+def resolve_db_path():
+    configured = CONFIG.get('db_file', '').strip()
+    if configured:
+        return configured
+    data_exists = os.path.exists('data.db')
+    bot_exists = os.path.exists('bot.db')
+    if bot_exists and not data_exists:
+        print('ℹ️ Найден bot.db — подключаемся к нему (старая версия бота)')
+        return 'bot.db'
+    if bot_exists and data_exists:
+        data_users = _count_users_in_db('data.db')
+        bot_users = _count_users_in_db('bot.db')
+        if bot_users > data_users:
+            print(f'ℹ️ В bot.db больше данных ({bot_users} пользователей vs {data_users}) — используем bot.db')
+            return 'bot.db'
+    return 'data.db'
+
+DB_PATH = resolve_db_path()
+db = sqlite3.connect(DB_PATH, check_same_thread=False)
 db.row_factory = sqlite3.Row
 
 def get_cursor():
@@ -344,7 +380,7 @@ def init_db():
     if 'claimed' not in cols:
         c.execute('ALTER TABLE user_daily_progress ADD COLUMN claimed INTEGER DEFAULT 0')
     db.commit()
-    print("✅ База данных готова")
+    print(f"✅ База данных готова ({DB_PATH})")
 
 init_db()
 
@@ -1457,7 +1493,7 @@ def exchange_crf_to_rub_btn(m):
     safe_send(m.chat.id, f"🔄 Введите сумму в CRF для обмена на ₽. Курс: 1 CRF = {rate:.4f} ₽ (комиссия 10%)", reply_markup=cancel_kb())
     user_states[user_id] = {'state': 'exchange_crf_to_rub'}
 
-@bot.message_handler(func=lambda m: m.text == '🔙 Назад')
+@bot.message_handler(func=lambda m: m.text in ('🔙 Назад', '⬅️ Назад'))
 def back_btn(m):
     user_id = m.from_user.id
     safe_send(m.chat.id, "Главное меню", reply_markup=main_menu(user_id))
@@ -3499,4 +3535,15 @@ def wheel_btn(m):
 
 
 if __name__ == '__main__':
-    bot.infinity_polling(timeout=60)
+    print('🤖 CRYPTO COINREF BOT v123.1')
+    print(f'📂 База: {DB_PATH}')
+    print(f'👑 Админы: {ADMIN_IDS}')
+    try:
+        me = bot.get_me()
+        print(f'✅ Подключено: @{me.username} (id {me.id})')
+    except Exception as e:
+        print(f'❌ Ошибка токена Telegram: {e}')
+        print('Проверьте telegramBotToken в config.json')
+        raise SystemExit(1)
+    print('🚀 Бот слушает сообщения...')
+    bot.infinity_polling(timeout=60, long_polling_timeout=60)

@@ -1,11 +1,9 @@
 #!/usr/bin/env bash
-# SCLUBvpn: полный откат наших экспериментов (502/500)
-# Запуск на VPS: bash /opt/remnawave/scripts/sclubvpn-rollback.sh
+# SCLUBvpn: ПОЛНЫЙ откат до состояния до всех экспериментов
+# Запуск на VPS: bash scripts/sclubvpn-rollback.sh
 
 set -euo pipefail
 
-ANNOUNCE=$'– Реферальная система SCLUBvpn –\n💸 Получай 25% с каждой продажи! Пригласи 4 человек и получи бесплатный доступ.'
-SUPPORT_URL='https://t.me/SaleClubVpnBot'
 TEST_UUID='KsBo-X23wXaVktZM'
 
 log() { printf '[%s] %s\n' "$(date -u +%H:%M:%S)" "$*"; }
@@ -15,43 +13,39 @@ psql() {
 }
 
 rollback_hosts() {
-  log 'Очистка server_description на хостах...'
-  psql -c "UPDATE hosts SET server_description = NULL WHERE uuid IN (
-    '373bec64-a450-4477-bae4-3e6510992768',
-    '93c4b867-3568-4bf2-9870-73945ba49460'
-  );"
+  log 'Очистка server_description на всех хостах...'
+  psql -c "UPDATE hosts SET server_description = NULL;"
 }
 
 rollback_subscription_settings() {
-  log 'Откат subscription_settings к рабочему состоянию...'
+  log 'Полный откат subscription_settings...'
   psql -c "UPDATE subscription_settings SET
     serve_json_at_base_subscription = false,
-    happ_announce = \$ann\$${ANNOUNCE}\$ann\$,
-    custom_response_headers = '{\"support-url\": \"${SUPPORT_URL}\", \"profile-web-page-url\": \"${SUPPORT_URL}\"}'::jsonb
+    happ_announce = NULL,
+    happ_routing = NULL,
+    custom_response_headers = NULL
   WHERE uuid = '00000000-0000-0000-0000-000000000000';"
 }
 
 remove_experimental_srr_rules() {
-  log 'Удаление экспериментальных SRR-правил (Happ iOS и др.)...'
-  docker exec -i remnawave-db psql -U postgres -d postgres -v ON_ERROR_STOP=1 <<'SQL'
-UPDATE subscription_settings
-SET response_rules = jsonb_set(
-  response_rules,
-  '{rules}',
-  COALESCE(
-    (
-      SELECT jsonb_agg(elem ORDER BY ord)
-      FROM (
-        SELECT elem, row_number() OVER () AS ord
-        FROM jsonb_array_elements(response_rules->'rules') AS elem
-        WHERE elem->>'name' NOT IN ('Happ iOS', 'Happ iOS Announce')
-      ) q
-    ),
-    response_rules->'rules'
+  log 'Удаление экспериментальных SRR-правил...'
+  psql -c "UPDATE subscription_settings
+  SET response_rules = jsonb_set(
+    response_rules,
+    '{rules}',
+    COALESCE(
+      (
+        SELECT jsonb_agg(elem ORDER BY ord)
+        FROM (
+          SELECT elem, row_number() OVER () AS ord
+          FROM jsonb_array_elements(response_rules->'rules') AS elem
+          WHERE elem->>'name' NOT IN ('Happ iOS', 'Happ iOS Announce')
+        ) q
+      ),
+      '[]'::jsonb
+    )
   )
-)
-WHERE uuid = '00000000-0000-0000-0000-000000000000';
-SQL
+  WHERE uuid = '00000000-0000-0000-0000-000000000000';"
 }
 
 flush_cache() {
@@ -60,34 +54,26 @@ flush_cache() {
 }
 
 restart_stack() {
-  log 'Перезапуск контейнеров...'
-  cd /opt/remnawave
-  docker compose ps --format '{{.Name}}' | while read -r name; do
-    case "$name" in
-      *subscription*|remnawave|caddy|redis|db)
-        docker compose restart "$name" 2>/dev/null || docker restart "$name" 2>/dev/null || true
-        ;;
-    esac
+  log 'Перезапуск всех контейнеров...'
+  for c in remnawave-db remnawave-redis remnawave remnawave-subscription-page caddy; do
+    docker restart "$c" 2>/dev/null || true
   done
-  sleep 8
+  sleep 25
 }
 
 verify() {
   log 'Проверка подписки...'
-  local headers status
+  local status
 
-  headers=$(curl -sS -D - -o /dev/null -A 'Mozilla/5.0' "https://sub.sclubvpn.xyz/${TEST_UUID}" 2>&1 || true)
-  status=$(printf '%s' "$headers" | awk 'toupper($1) ~ /^HTTP/ {print $2; exit}')
+  status=$(curl -s -o /dev/null -w '%{http_code}' -A 'Happ/4.12.0/ios/2606121423635' "https://sub.sclubvpn.xyz/${TEST_UUID}")
+  log "iOS Happ -> HTTP ${status}"
+  [[ "$status" == "200" ]] || return 1
 
-  log "sub.sclubvpn.xyz -> HTTP ${status:-unknown}"
-  [[ "${status:-}" == "200" ]] || {
-    headers=$(curl -sS -D - -o /dev/null -A 'Mozilla/5.0' "https://panel.sclubvpn.xyz/api/sub/${TEST_UUID}" 2>&1 || true)
-    status=$(printf '%s' "$headers" | awk 'toupper($1) ~ /^HTTP/ {print $2; exit}')
-    log "panel api/sub -> HTTP ${status:-unknown}"
-  }
+  status=$(curl -s -o /dev/null -w '%{http_code}' -A 'Happ/4.12.0/windows/123' "https://sub.sclubvpn.xyz/${TEST_UUID}")
+  log "Windows Happ -> HTTP ${status}"
+  [[ "$status" == "200" ]] || return 1
 
-  [[ "${status:-}" == "200" ]] || return 1
-  log 'Подписка снова отвечает 200.'
+  log 'Подписка отвечает 200 на iOS и Windows.'
 }
 
 main() {
@@ -97,7 +83,7 @@ main() {
   flush_cache
   restart_stack
   verify
-  log 'Откат завершён.'
+  log 'Полный откат завершён. happ_announce и custom_response_headers = NULL.'
 }
 
 main "$@"

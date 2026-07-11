@@ -1,67 +1,49 @@
 #!/usr/bin/env bash
-# SCLUBvpn: Happ iOS — base64 подписка + русский текст в HTTP-заголовках (base64:)
-# ВАЖНО: XRAY_JSON ломает Happ iOS (подписка не загружается). Используем Fallback Base64.
+# SCLUBvpn: стабильная конфигурация Happ (iOS/Android/Windows)
+# Русский текст ТОЛЬКО через happ_announce (Remnawave сам кодирует в base64).
+# НЕ добавлять announce/sub-info в custom_response_headers — ломает импорт в Happ iOS!
 # Run on VPS as root: bash scripts/sclubvpn-ios-announce.sh
 
 set -euo pipefail
 
 log() { printf '[%s] %s\n' "$(date -u +%H:%M:%S)" "$*"; }
 
-log 'Applying base64 subscription + Russian base64 headers for all Happ clients...'
+log 'Applying stable Happ config (base64 links + happ_announce)...'
 
-ANNOUNCE_B64=$(printf '%s' $'– Реферальная система SCLUBvpn –\n💸 Получай 25% с каждой продажи! Пригласи 4 человек и получи бесплатный доступ.' | base64 -w0)
-SUB_INFO_B64=$(printf '%s' 'Реф. 25% SCLUBvpn — пригласи 4 друга = бесплатно!' | base64 -w0)
-BTN_TEXT_B64=$(printf '%s' 'Подробнее' | base64 -w0)
-
-docker exec -i remnawave-db psql -U postgres -d postgres -v ON_ERROR_STOP=1 <<SQL
-DO \$\$
-DECLARE
-  rules jsonb;
-  cleaned jsonb := '[]'::jsonb;
-  elem jsonb;
-  fallback jsonb;
-BEGIN
-  SELECT response_rules->'rules' INTO rules FROM subscription_settings
-  WHERE uuid = '00000000-0000-0000-0000-000000000000';
-
-  -- Удаляем Happ iOS (XRAY_JSON) — iOS должен получать base64 как Windows
-  FOR elem IN SELECT value FROM jsonb_array_elements(rules)
-  LOOP
-    IF elem->>'name' IN ('Happ iOS', 'Happ iOS Announce') THEN CONTINUE; END IF;
-    IF elem->>'name' = 'Fallback Base64' THEN fallback := elem; CONTINUE; END IF;
-    cleaned := cleaned || jsonb_build_array(elem);
-  END LOOP;
-
-  UPDATE subscription_settings SET
-    serve_json_at_base_subscription = false,
-    happ_announce = E'– Реферальная система SCLUBvpn –\n💸 Получай 25% с каждой продажи! Пригласи 4 человек и получи бесплатный доступ.',
-    custom_response_headers = jsonb_build_object(
-      'announce', 'base64:${ANNOUNCE_B64}',
-      'sub-info-text', 'base64:${SUB_INFO_B64}',
-      'sub-info-button-text', 'base64:${BTN_TEXT_B64}',
-      'sub-info-button-link', 'https://t.me/SaleClubVpnBot',
-      'announce-url', 'https://t.me/SaleClubVpnBot',
-      'support-url', 'https://t.me/SaleClubVpnBot',
-      'profile-web-page-url', 'https://t.me/SaleClubVpnBot'
-    ),
-    response_rules = jsonb_set(response_rules, '{rules}',
-      cleaned || jsonb_build_array(fallback)
-    )
-  WHERE uuid = '00000000-0000-0000-0000-000000000000';
-END \$\$;
-
-UPDATE hosts SET server_description = NULL
-WHERE uuid IN (
+docker exec -i remnawave-db psql -U postgres -d postgres -v ON_ERROR_STOP=1 <<'SQL'
+UPDATE hosts SET server_description = NULL WHERE uuid IN (
   '373bec64-a450-4477-bae4-3e6510992768',
   '93c4b867-3568-4bf2-9870-73945ba49460'
 );
+
+UPDATE subscription_settings SET
+  serve_json_at_base_subscription = false,
+  happ_announce = E'– Реферальная система SCLUBvpn –\n💸 Получай 25% с каждой продажи! Пригласи 4 человек и получи бесплатный доступ.',
+  custom_response_headers = '{"support-url": "https://t.me/SaleClubVpnBot", "profile-web-page-url": "https://t.me/SaleClubVpnBot"}'::jsonb
+WHERE uuid = '00000000-0000-0000-0000-000000000000';
+
+UPDATE subscription_settings
+SET response_rules = jsonb_set(
+  response_rules,
+  '{rules}',
+  COALESCE(
+    (
+      SELECT jsonb_agg(elem ORDER BY ord)
+      FROM (
+        SELECT elem, row_number() OVER () AS ord
+        FROM jsonb_array_elements(response_rules->'rules') AS elem
+        WHERE elem->>'name' NOT IN ('Happ iOS', 'Happ iOS Announce')
+      ) q
+    ),
+    response_rules->'rules'
+  )
+)
+WHERE uuid = '00000000-0000-0000-0000-000000000000';
 SQL
 
 docker exec remnawave-redis valkey-cli -s /var/run/valkey/valkey.sock FLUSHALL >/dev/null
 cd /opt/remnawave
-docker compose restart remnawave remnawave-subscription-page caddy 2>/dev/null || {
-  docker restart remnawave remnawave-subscription-page caddy
-}
+docker restart remnawave remnawave-subscription-page caddy 2>/dev/null || true
 sleep 20
 
-log 'Done. iOS/Android/Windows: base64 links + Russian announce in headers.'
+log 'Done. Base64 подписка + announce из happ_announce (русский, base64 в заголовке).'

@@ -1,15 +1,20 @@
 #!/usr/bin/env bash
-# SCLUBvpn: iOS Happ description via SRR (JSON + plain announce header)
+# SCLUBvpn: iOS Happ — русский текст через base64 в HTTP-заголовках (JSON-ответ)
+# Plain кириллица/emoji в заголовках даёт ERR_INVALID_CHAR; base64: — работает.
 # Run on VPS as root: bash scripts/sclubvpn-ios-announce.sh
 
 set -euo pipefail
 
 log() { printf '[%s] %s\n' "$(date -u +%H:%M:%S)" "$*"; }
 
-log 'Applying Happ iOS SRR rule...'
+log 'Applying Happ iOS SRR rule (Russian base64 headers)...'
 
-docker exec -i remnawave-db psql -U postgres -d postgres -v ON_ERROR_STOP=1 <<'SQL'
-DO $$
+ANNOUNCE_B64=$(printf '%s' $'– Реферальная система SCLUBvpn –\n💸 Получай 25% с каждой продажи! Пригласи 4 человек и получи бесплатный доступ.' | base64 -w0)
+SUB_INFO_B64=$(printf '%s' 'Реф. 25% SCLUBvpn — пригласи 4 друга = бесплатно!' | base64 -w0)
+BTN_TEXT_B64=$(printf '%s' 'Подробнее' | base64 -w0)
+
+docker exec -i remnawave-db psql -U postgres -d postgres -v ON_ERROR_STOP=1 <<SQL
+DO \$\$
 DECLARE
   rules jsonb;
   ios_rule jsonb;
@@ -20,26 +25,28 @@ BEGIN
   SELECT response_rules->'rules' INTO rules FROM subscription_settings
   WHERE uuid = '00000000-0000-0000-0000-000000000000';
 
-  ios_rule := '{
-    "name": "Happ iOS",
-    "description": "iOS Happ: JSON + plain announce",
-    "enabled": true,
-    "operator": "AND",
-    "conditions": [
-      {"caseSensitive": false, "headerName": "user-agent", "operator": "CONTAINS", "value": "happ"},
-      {"caseSensitive": false, "headerName": "user-agent", "operator": "CONTAINS", "value": "/ios/"}
-    ],
-    "responseType": "XRAY_JSON",
-    "responseModifications": {
-      "applyHeadersToEnd": true,
-      "headers": [
-        {"key": "announce", "value": "Ref. 25% SCLUBvpn - priglasi 4 druzej = besplatno! @SaleClubVpnBot"},
-        {"key": "announce-url", "value": "https://t.me/SaleClubVpnBot"},
-        {"key": "support-url", "value": "https://t.me/SaleClubVpnBot"},
-        {"key": "profile-web-page-url", "value": "https://t.me/SaleClubVpnBot"}
-      ]
-    }
-  }'::jsonb;
+  ios_rule := jsonb_build_object(
+    'name', 'Happ iOS',
+    'enabled', true,
+    'operator', 'AND',
+    'conditions', jsonb_build_array(
+      jsonb_build_object('caseSensitive', false, 'headerName', 'user-agent', 'operator', 'CONTAINS', 'value', 'happ'),
+      jsonb_build_object('caseSensitive', false, 'headerName', 'user-agent', 'operator', 'CONTAINS', 'value', '/ios/')
+    ),
+    'responseType', 'XRAY_JSON',
+    'responseModifications', jsonb_build_object(
+      'applyHeadersToEnd', true,
+      'headers', jsonb_build_array(
+        jsonb_build_object('key', 'announce', 'value', 'base64:${ANNOUNCE_B64}'),
+        jsonb_build_object('key', 'sub-info-text', 'value', 'base64:${SUB_INFO_B64}'),
+        jsonb_build_object('key', 'sub-info-button-text', 'value', 'base64:${BTN_TEXT_B64}'),
+        jsonb_build_object('key', 'sub-info-button-link', 'value', 'https://t.me/SaleClubVpnBot'),
+        jsonb_build_object('key', 'announce-url', 'value', 'https://t.me/SaleClubVpnBot'),
+        jsonb_build_object('key', 'support-url', 'value', 'https://t.me/SaleClubVpnBot'),
+        jsonb_build_object('key', 'profile-web-page-url', 'value', 'https://t.me/SaleClubVpnBot')
+      )
+    )
+  );
 
   FOR elem IN SELECT value FROM jsonb_array_elements(rules)
   LOOP
@@ -56,7 +63,7 @@ BEGIN
       cleaned || jsonb_build_array(ios_rule) || jsonb_build_array(fallback)
     )
   WHERE uuid = '00000000-0000-0000-0000-000000000000';
-END $$;
+END \$\$;
 
 UPDATE hosts SET server_description = NULL
 WHERE uuid IN (
@@ -72,4 +79,4 @@ docker compose restart remnawave remnawave-subscription-page caddy 2>/dev/null |
 }
 sleep 18
 
-log 'Done. iOS should get JSON + plain announce; Windows keeps base64.'
+log 'Done. iOS: JSON + base64 Russian headers; Windows: base64 links without serverDescription.'

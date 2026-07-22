@@ -24,7 +24,7 @@ from rich.panel import Panel
 from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
 from rich.prompt import Confirm, IntPrompt, Prompt
 from rich.table import Table
-from telethon import TelegramClient, functions, types
+from telethon import TelegramClient, connection, functions, types
 from telethon.errors import (
     ChannelPrivateError,
     ChatAdminRequiredError,
@@ -86,6 +86,13 @@ CHANNEL_SEARCH_QUERIES = [
 
 TARGET_OPEN_CHANNELS = 200
 DEFAULT_SEED_CHANNELS = ["rian_rub"]
+
+# Предзаполненный конфиг (acc1) — создаёт maxlooking_data.json при первом запуске
+BOOTSTRAP_API_ID = 35493327
+BOOTSTRAP_API_HASH = "244ecb059d907aba6997462f481640d2"
+BOOTSTRAP_ACCOUNTS = [
+    {"name": "acc1", "phone": "+13257390879"},
+]
 
 
 # ─────────────────────────── data models ─────────────────────
@@ -154,6 +161,21 @@ class AppData:
         )
 
 
+def ensure_config() -> AppData:
+    """Загрузить конфиг или создать из встроенных данных acc1."""
+    data = AppData.load()
+    if data.api_id and data.accounts:
+        return data
+    data = AppData(
+        api_id=BOOTSTRAP_API_ID,
+        api_hash=BOOTSTRAP_API_HASH,
+        accounts=[Account(**a) for a in BOOTSTRAP_ACCOUNTS],
+        channels=list(DEFAULT_SEED_CHANNELS),
+    )
+    data.save()
+    return data
+
+
 @dataclass
 class StoryTarget:
     peer_id: int
@@ -210,13 +232,22 @@ def session_path(name: str) -> Path:
 
 
 def make_client(data: AppData, account: Account) -> TelegramClient:
+    """Прямое MTProto-подключение без VPN (Telegram DC, не прокси)."""
     return TelegramClient(
         str(session_path(account.name)),
         data.api_id,
         data.api_hash,
-        device_model="MaxLooking Pro",
+        connection=connection.ConnectionTcpFull,
+        connection_retries=10,
+        retry_delay=5,
+        timeout=60,
+        auto_reconnect=True,
+        use_ipv6=False,
+        device_model="TrubaSatka",
         system_version="Android 13",
-        app_version="2.0",
+        app_version="1.0",
+        lang_code="ru",
+        system_lang_code="ru-RU",
     )
 
 
@@ -325,7 +356,7 @@ def show_status(data: AppData) -> None:
 
 def main_menu() -> str:
     banner()
-    show_status(AppData.load())
+    show_status(ensure_config())
     console.print()
     console.print("  [bold cyan]1[/]  🚀  [bold]БЫСТРЫЙ СТАРТ[/] — всё автоматически")
     console.print("  [bold cyan]2[/]  🔑  Настроить API и аккаунты")
@@ -1054,28 +1085,62 @@ async def run_pipeline(
     Prompt.ask("Enter")
 
 
+async def needs_login(data: AppData) -> bool:
+    for acc in data.accounts:
+        path = session_path(acc.name).with_suffix(".session")
+        if not path.exists():
+            return True
+        client = make_client(data, acc)
+        await client.connect()
+        ok = await client.is_user_authorized()
+        await client.disconnect()
+        if not ok:
+            return True
+    return False
+
+
+async def go_mode() -> None:
+    """Только код из Telegram → сразу работа. Без меню и VPN."""
+    setup_log()
+    SESSION_DIR.mkdir(exist_ok=True)
+    data = ensure_config()
+    ensure_seed_channels(data)
+
+    banner()
+    console.print(
+        Panel(
+            f"[bold]Аккаунт:[/] {data.accounts[0].phone}\n"
+            f"[bold]API:[/] TrubaSatka (id {data.api_id})\n"
+            "[cyan]VPN не нужен — прямое подключение к серверам Telegram[/]",
+            title="СТАРТ",
+            style="green",
+        )
+    )
+
+    if await needs_login(data):
+        console.print("\n[yellow]Введи код из Telegram[/] (придёт в приложение или SMS)\n")
+        await login_all(data)
+    else:
+        console.print("\n[green]✓ Сессия уже сохранена, вход не нужен[/]\n")
+
+    await quick_start(data)
+
+
 async def quick_start(data: AppData) -> None:
     banner()
-    console.print(Panel("[bold]БЫСТРЫЙ СТАРТ[/] — вход → каналы → истории + реакции", style="green"))
-
-    if not data.api_id or not data.accounts:
-        setup_api(data)
-        data = AppData.load()
+    console.print(Panel("[bold]БЫСТРЫЙ СТАРТ[/] — каналы → истории + реакции", style="green"))
 
     ensure_seed_channels(data)
 
-    console.print("\n[cyan]Шаг 1/4:[/] Вход в аккаунты")
-    await login_all(data)
-
     if len(data.channels) < 50:
-        console.print(f"\n[cyan]Шаг 2/4:[/] Поиск открытых каналов (цель: {TARGET_OPEN_CHANNELS})")
+        console.print(f"\n[cyan]Поиск открытых каналов (цель: {TARGET_OPEN_CHANNELS})...[/]")
         with console.status("[bold cyan]Ищем каналы с открытыми участниками..."):
             await discover_open_channels(data)
         console.print(f"[green]✓[/] Каналов: {len(data.channels)}")
     else:
-        console.print(f"\n[green]Шаг 2/4:[/] Каналы уже есть: {len(data.channels)}")
+        console.print(f"\n[green]Каналы уже есть:[/] {len(data.channels)}")
 
-    console.print("\n[cyan]Шаг 3-4/4:[/] Истории + реакции в чатах")
+    console.print("\n[cyan]Сканирование + лайки + реакции...[/]")
     await run_pipeline(data, discover_only=False)
 
 
@@ -1124,7 +1189,7 @@ async def async_main() -> None:
 
     while True:
         choice = main_menu()
-        data = AppData.load()
+        data = ensure_config()
 
         if choice == "0":
             console.print("[dim]Пока![/]")
@@ -1164,6 +1229,9 @@ async def async_main() -> None:
 
 def main() -> None:
     try:
+        if len(sys.argv) > 1 and sys.argv[1] in ("go", "start"):
+            asyncio.run(go_mode())
+            return
         asyncio.run(async_main())
     except KeyboardInterrupt:
         console.print("\n[yellow]Остановлено[/]")

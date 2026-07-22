@@ -1,0 +1,15 @@
+{
+  "reaction": "❤️",
+  "min_delay_sec": 25,
+  "max_delay_sec": 75,
+  "max_likes_per_account_per_hour": 20,
+  "max_likes_per_account_per_day": 80,
+  "include_channels": false,
+  "whitelist_file": "whitelist.txt",
+  "blacklist_file": "blacklist.txt",
+  "use_whitelist_only": false,
+  "mark_as_read": true,
+  "shuffle_targets": true,
+  "session_dir": "sessions",
+  "log_file": "maxlooking.log"
+}

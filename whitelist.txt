@@ -1,0 +1,2 @@
+# Один username на строку (без @)
+# example_user

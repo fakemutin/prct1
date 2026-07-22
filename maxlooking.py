@@ -3,9 +3,10 @@
 Telegram MaxLooking — мультиаккаунтный лайкер историй.
 
 Источники историй:
-  1) Лента аккаунта (контакты + подписки) — stories.getAllStories
-  2) Публичный поиск незнакомцев — stories.searchPosts по RU-хештегам/гео
-  3) Люди рядом (опционально) — contacts.getLocated
+  1) Открытые каналы — вход + парс участников + их истории
+  2) Публичный поиск — stories.searchPosts по RU-хештегам
+  3) Люди рядом — contacts.getLocated
+  4) Лента (опц.) — stories.getAllStories
 
 Запуск:
   pip install -r requirements.txt
@@ -35,6 +36,7 @@ from telethon.errors import (
     FloodWaitError,
     RPCError,
     SessionPasswordNeededError,
+    UserAlreadyParticipantError,
     UserDeactivatedBanError,
 )
 from telethon.tl.types import InputGeoPoint, PeerChannel, PeerUser
@@ -63,30 +65,44 @@ DEFAULT_NEARBY_CITIES = [
 
 
 @dataclass
+class ChannelDiscoveryConfig:
+    enabled: bool = True
+    channels_file: str = "channels.txt"
+    auto_join: bool = True
+    use_joined_public_channels: bool = True
+    max_participants_per_channel: int = 300
+    max_channels_per_run: int = 15
+    delay_between_users_sec: float = 2.0
+    delay_between_channels_sec: float = 5.0
+
+
+@dataclass
 class DiscoveryConfig:
     enabled: bool = True
     use_feed: bool = False
     skip_contacts: bool = True
     users_only: bool = True
     russian_filter: bool = True
+    use_hashtags: bool = False
     hashtags: list[str] = field(default_factory=lambda: list(DEFAULT_RU_HASHTAGS))
     search_limit_per_page: int = 50
     max_pages_per_hashtag: int = 5
     delay_between_searches_sec: float = 3.0
-    people_nearby: bool = True
+    people_nearby: bool = False
     nearby_self_expires_sec: int = 3600
     nearby_locations: list[dict[str, Any]] = field(
         default_factory=lambda: list(DEFAULT_NEARBY_CITIES)
     )
+    channels: ChannelDiscoveryConfig = field(default_factory=ChannelDiscoveryConfig)
 
 
 @dataclass
 class AppConfig:
     reaction: str = "❤️"
-    min_delay_sec: float = 25.0
-    max_delay_sec: float = 75.0
-    max_likes_per_account_per_hour: int = 20
-    max_likes_per_account_per_day: int = 80
+    min_delay_sec: float = 150.0
+    max_delay_sec: float = 250.0
+    max_likes_per_account_per_hour: int = 18
+    max_likes_per_account_per_day: int = 200
     include_channels: bool = False
     whitelist_file: str = "whitelist.txt"
     blacklist_file: str = "blacklist.txt"
@@ -105,12 +121,21 @@ class AppConfig:
             )
         data = json.loads(path.read_text(encoding="utf-8"))
         discovery_raw = data.pop("discovery", {})
+        channels_raw = discovery_raw.pop("channels", {})
+        channels = ChannelDiscoveryConfig(
+            **{
+                k: channels_raw[k]
+                for k in ChannelDiscoveryConfig.__dataclass_fields__
+                if k in channels_raw
+            }
+        )
         discovery = DiscoveryConfig(
+            channels=channels,
             **{
                 k: discovery_raw[k]
                 for k in DiscoveryConfig.__dataclass_fields__
-                if k in discovery_raw
-            }
+                if k in discovery_raw and k != "channels"
+            },
         )
         base = {k: data[k] for k in cls.__dataclass_fields__ if k in data and k != "discovery"}
         return cls(discovery=discovery, **base)
@@ -181,6 +206,17 @@ def load_username_list(path: Path) -> set[str]:
         line = line.strip().lstrip("@").lower()
         if line and not line.startswith("#"):
             result.add(line)
+    return result
+
+
+def load_channels_list(path: Path) -> list[str]:
+    if not path.exists():
+        return []
+    result: list[str] = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip().lstrip("@")
+        if line and not line.startswith("#"):
+            result.append(line)
     return result
 
 
@@ -471,6 +507,202 @@ async def fetch_story_targets(
     return targets
 
 
+async def ensure_channel_joined(client: TelegramClient, channel: Any) -> bool:
+    try:
+        await client(functions.channels.JoinChannelRequest(channel))
+        return True
+    except UserAlreadyParticipantError:
+        return True
+    except RPCError as exc:
+        logging.warning("Не удалось вступить в %s: %s", getattr(channel, "username", channel.id), exc)
+        return False
+
+
+async def resolve_channels_for_scan(
+    client: TelegramClient,
+    cfg: AppConfig,
+) -> list[Any]:
+    ch_cfg = cfg.discovery.channels
+    found: dict[int, Any] = {}
+
+    if ch_cfg.use_joined_public_channels:
+        async for dialog in client.iter_dialogs():
+            entity = dialog.entity
+            if not dialog.is_channel:
+                continue
+            if getattr(entity, "username", None):
+                found[entity.id] = entity
+
+    for username in load_channels_list(BASE_DIR / ch_cfg.channels_file):
+        try:
+            entity = await client.get_entity(username)
+            if getattr(entity, "username", None) or dialog_is_megagroup_or_channel(entity):
+                found[entity.id] = entity
+        except (RPCError, ValueError) as exc:
+            logging.warning("Канал @%s не найден: %s", username, exc)
+
+    channels = list(found.values())
+    random.shuffle(channels)
+    return channels[: ch_cfg.max_channels_per_run]
+
+
+def dialog_is_megagroup_or_channel(entity: Any) -> bool:
+    return getattr(entity, "megagroup", False) or getattr(entity, "broadcast", False)
+
+
+async def fetch_user_stories_from_channel(
+    client: TelegramClient,
+    account_name: str,
+    user: Any,
+    channel_name: str,
+    cfg: AppConfig,
+    whitelist: set[str],
+    blacklist: set[str],
+    contact_ids: set[int],
+) -> list[StoryTarget]:
+    disc = cfg.discovery
+
+    if getattr(user, "bot", False) or getattr(user, "deleted", False):
+        return []
+
+    if disc.skip_contacts and not is_stranger(user.id, contact_ids, cfg):
+        return []
+
+    if not looks_russian_user(user, cfg):
+        return []
+
+    username = username_of(user)
+    if not passes_lists(username, whitelist, blacklist, cfg.use_whitelist_only):
+        return []
+
+    try:
+        peer_stories = await client(functions.stories.GetPeerStoriesRequest(peer=user))
+    except FloodWaitError as exc:
+        logging.warning("[%s] FLOOD_WAIT getPeerStories: %d сек", account_name, exc.seconds)
+        await asyncio.sleep(exc.seconds + 5)
+        return []
+    except RPCError:
+        return []
+
+    stories = getattr(peer_stories.stories, "stories", []) or []
+    if not stories:
+        return []
+
+    input_peer = await client.get_input_entity(user)
+    targets: list[StoryTarget] = []
+    for story in stories:
+        if not story_is_active(story):
+            continue
+        targets.append(
+            make_target(
+                account_name,
+                user,
+                input_peer,
+                story.id,
+                f"channel:{channel_name}",
+            )
+        )
+    return targets
+
+
+async def fetch_discovery_from_channels(
+    client: TelegramClient,
+    account_name: str,
+    cfg: AppConfig,
+    whitelist: set[str],
+    blacklist: set[str],
+    contact_ids: set[int],
+) -> list[StoryTarget]:
+    """Вход в открытые каналы → парс участников → истории."""
+    ch_cfg = cfg.discovery.channels
+    if not ch_cfg.enabled:
+        return []
+
+    channels = await resolve_channels_for_scan(client, cfg)
+    if not channels:
+        logging.warning(
+            "[%s] Нет каналов. Добавьте username в %s",
+            account_name,
+            ch_cfg.channels_file,
+        )
+        return []
+
+    logging.info("[%s] Каналов к сканированию: %d", account_name, len(channels))
+    targets: list[StoryTarget] = []
+    seen_users: set[int] = set()
+
+    for channel in channels:
+        channel_name = getattr(channel, "username", None) or str(channel.id)
+
+        if ch_cfg.auto_join:
+            joined = await ensure_channel_joined(client, channel)
+            if not joined:
+                continue
+
+        logging.info("[%s] Сканируем @%s ...", account_name, channel_name)
+        participants_checked = 0
+        users_with_stories = 0
+
+        try:
+            async for user in client.iter_participants(
+                channel,
+                limit=ch_cfg.max_participants_per_channel,
+            ):
+                if user.id in seen_users:
+                    continue
+                seen_users.add(user.id)
+                participants_checked += 1
+
+                user_targets = await fetch_user_stories_from_channel(
+                    client,
+                    account_name,
+                    user,
+                    channel_name,
+                    cfg,
+                    whitelist,
+                    blacklist,
+                    contact_ids,
+                )
+                if user_targets:
+                    users_with_stories += 1
+                    targets.extend(user_targets)
+
+                if participants_checked % 25 == 0:
+                    logging.info(
+                        "[%s] @%s: проверено %d, с историями %d, лайков в очереди %d",
+                        account_name,
+                        channel_name,
+                        participants_checked,
+                        users_with_stories,
+                        len(targets),
+                    )
+
+                await asyncio.sleep(ch_cfg.delay_between_users_sec)
+
+        except FloodWaitError as exc:
+            logging.warning(
+                "[%s] FLOOD_WAIT участники @%s: %d сек",
+                account_name,
+                channel_name,
+                exc.seconds,
+            )
+            await asyncio.sleep(exc.seconds + 10)
+        except RPCError as exc:
+            logging.warning("[%s] Ошибка @%s: %s", account_name, channel_name, exc)
+
+        logging.info(
+            "[%s] @%s готов: участников %d, юзеров с историями %d, историй %d",
+            account_name,
+            channel_name,
+            participants_checked,
+            users_with_stories,
+            len(targets),
+        )
+        await asyncio.sleep(ch_cfg.delay_between_channels_sec)
+
+    return targets
+
+
 async def fetch_discovery_by_hashtags(
     client: TelegramClient,
     account_name: str,
@@ -481,6 +713,9 @@ async def fetch_discovery_by_hashtags(
 ) -> list[StoryTarget]:
     """Глобальный поиск публичных историй незнакомцев по RU-хештегам."""
     disc = cfg.discovery
+    if not disc.use_hashtags:
+        return []
+
     targets: list[StoryTarget] = []
     hashtags = list(disc.hashtags)
     random.shuffle(hashtags)
@@ -686,6 +921,12 @@ async def collect_all_targets(
     targets: list[StoryTarget] = []
 
     if cfg.discovery.enabled:
+        channel_targets = await fetch_discovery_from_channels(
+            client, account_name, cfg, whitelist, blacklist, contact_ids
+        )
+        targets.extend(channel_targets)
+        logging.info("[%s] Каналы: %d историй", account_name, len(channel_targets))
+
         hashtag_targets = await fetch_discovery_by_hashtags(
             client, account_name, cfg, whitelist, blacklist, contact_ids
         )

@@ -1,6 +1,14 @@
-# MaxLooking — мультиаккаунтный лайкер историй Telegram
+# MaxLooking — лайкер историй через открытые каналы
 
-Парсит **публичные истории незнакомцев** через глобальный поиск Telegram и ставит ❤️.
+## Схема работы
+
+```
+Каналы (channels.txt + уже подписанные)
+    → вступить (auto_join)
+    → iter_participants (до 300 чел/канал)
+    → getPeerStories у каждого
+    → ❤️ лайк (18/час, пауза 2.5–4 мин)
+```
 
 ## Быстрый старт
 
@@ -8,51 +16,55 @@
 pip install -r requirements.txt
 cp accounts.example.json accounts.json
 cp config.example.json config.json
-python3 maxlooking.py login
-python3 maxlooking.py discover   # только поиск (без лайков)
-python3 maxlooking.py run        # поиск + лайки
-python3 maxlooking.py check      # @SpamBot
 ```
 
-## Откуда берутся истории
+1. Заполни `accounts.json` (api_id, api_hash, phone)
+2. Добавь каналы в `channels.txt` (username без @)
+3. Запуск:
 
-| Источник | API | Кто попадает |
-|----------|-----|--------------|
-| Хештеги (#москва, #россия...) | `stories.searchPosts` | Публичные истории незнакомцев с хештегом |
-| Люди рядом | `contacts.getLocated` | Кто сам включил геолокацию в Telegram |
-| Лента (опц.) | `stories.getAllStories` | Контакты и подписки (`use_feed: true`) |
+```bash
+python3 maxlooking.py login
+python3 maxlooking.py discover   # только поиск
+python3 maxlooking.py run        # поиск + лайки
+```
 
-По умолчанию: **только незнакомцы** (`skip_contacts: true`), **только юзеры** (`users_only: true`).
+## channels.txt
 
-## RU-фильтр
+```
+moscowchat
+piter_chat
+dating_ru
+```
 
-Прокси-признаки «русскоязычный пользователь» (100% точности нет):
-- `lang_code`: ru, uk, be, kk
-- телефон +7
-- кириллица в имени
+Также сканируются **уже подписанные** публичные каналы (`use_joined_public_channels: true`).
 
-**Возраст 18+ через API определить нельзя** — Telegram не отдаёт дату рождения.
+## Лимиты (по умолчанию)
 
-## Настройки discovery (`config.json`)
+| Параметр | Значение |
+|----------|----------|
+| Лайков/час/аккаунт | 18 |
+| Лайков/день/аккаунт | 200 |
+| Пауза между лайками | 150–250 сек (~15–20/час) |
+| Участников/канал | 300 |
+| Каналов за прогон | 15 |
+
+## config.json — каналы
 
 ```json
-"discovery": {
+"channels": {
   "enabled": true,
-  "use_feed": false,
-  "skip_contacts": true,
-  "russian_filter": true,
-  "hashtags": ["москва", "спб", "россия"],
-  "max_pages_per_hashtag": 5,
-  "people_nearby": true
+  "channels_file": "channels.txt",
+  "auto_join": true,
+  "use_joined_public_channels": true,
+  "max_participants_per_channel": 300,
+  "max_channels_per_run": 15
 }
 ```
 
-## Лимиты
+## FLOOD_WAIT
 
-- 20 лайков/час, 80/день на аккаунт (меняйте в `config.json`)
-- Пауза 25–75 сек между лайками
-- При `FLOOD_WAIT` — автоматическое ожидание
+При `FLOOD_WAIT` скрипт ждёт автоматически. Лимит 15–20/час снижает частоту ошибок.
 
 ## Риски
 
-Userbot + массовые лайки незнакомцам = высокий риск ограничений. Прогревайте аккаунты 10–14 дней.
+Массовый парс участников каналов + лайки незнакомцам = риск ограничений @SpamBot. Используй на свой страх и риск.

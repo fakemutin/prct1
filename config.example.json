@@ -1,9 +1,9 @@
 {
   "reaction": "❤️",
-  "min_delay_sec": 25,
-  "max_delay_sec": 75,
-  "max_likes_per_account_per_hour": 20,
-  "max_likes_per_account_per_day": 80,
+  "min_delay_sec": 150,
+  "max_delay_sec": 250,
+  "max_likes_per_account_per_hour": 18,
+  "max_likes_per_account_per_day": 200,
   "include_channels": false,
   "whitelist_file": "whitelist.txt",
   "blacklist_file": "blacklist.txt",
@@ -18,26 +18,25 @@
     "skip_contacts": true,
     "users_only": true,
     "russian_filter": true,
+    "use_hashtags": false,
+    "people_nearby": false,
+    "channels": {
+      "enabled": true,
+      "channels_file": "channels.txt",
+      "auto_join": true,
+      "use_joined_public_channels": true,
+      "max_participants_per_channel": 300,
+      "max_channels_per_run": 15,
+      "delay_between_users_sec": 2.0,
+      "delay_between_channels_sec": 5.0
+    },
     "hashtags": [
-      "москва", "спб", "питер", "россия", "мск", "рф",
-      "екатеринбург", "казань", "новосибирск", "краснодар", "сочи",
-      "самара", "ростов", "уфа", "воронеж", "пермь", "волгоград",
-      "красноярск", "тюмень", "омск", "челябинск", "нижнийновгород",
-      "хабаровск", "владивосток", "калининград", "тула", "ярославль",
-      "барнаул", "иркутск", "москвич", "питерский", "русская"
+      "москва", "спб", "россия"
     ],
     "search_limit_per_page": 50,
     "max_pages_per_hashtag": 5,
     "delay_between_searches_sec": 3.0,
-    "people_nearby": true,
     "nearby_self_expires_sec": 3600,
-    "nearby_locations": [
-      {"name": "Москва", "lat": 55.7558, "lon": 37.6173},
-      {"name": "Санкт-Петербург", "lat": 59.9343, "lon": 30.3351},
-      {"name": "Казань", "lat": 55.8304, "lon": 49.0661},
-      {"name": "Екатеринбург", "lat": 56.8389, "lon": 60.6057},
-      {"name": "Новосибирск", "lat": 55.0084, "lon": 82.9357},
-      {"name": "Краснодар", "lat": 45.0355, "lon": 38.9753}
-    ]
+    "nearby_locations": []
   }
 }

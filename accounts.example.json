@@ -1,0 +1,14 @@
+[
+  {
+    "name": "account1",
+    "api_id": 12345678,
+    "api_hash": "your_api_hash_here",
+    "phone": "+79001234567"
+  },
+  {
+    "name": "account2",
+    "api_id": 12345678,
+    "api_hash": "your_api_hash_here",
+    "phone": "+79007654321"
+  }
+]

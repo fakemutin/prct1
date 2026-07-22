@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+*.session
+*.session-journal
+accounts.json
+config.json
+maxlooking_data.json
+maxlooking.log
+sessions/

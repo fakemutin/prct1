@@ -1,0 +1,42 @@
+{
+  "reaction": "❤️",
+  "min_delay_sec": 150,
+  "max_delay_sec": 250,
+  "max_likes_per_account_per_hour": 18,
+  "max_likes_per_account_per_day": 200,
+  "include_channels": false,
+  "whitelist_file": "whitelist.txt",
+  "blacklist_file": "blacklist.txt",
+  "use_whitelist_only": false,
+  "mark_as_read": true,
+  "shuffle_targets": true,
+  "session_dir": "sessions",
+  "log_file": "maxlooking.log",
+  "discovery": {
+    "enabled": true,
+    "use_feed": false,
+    "skip_contacts": true,
+    "users_only": true,
+    "russian_filter": true,
+    "use_hashtags": false,
+    "people_nearby": false,
+    "channels": {
+      "enabled": true,
+      "channels_file": "channels.txt",
+      "auto_join": true,
+      "use_joined_public_channels": true,
+      "max_participants_per_channel": 300,
+      "max_channels_per_run": 15,
+      "delay_between_users_sec": 2.0,
+      "delay_between_channels_sec": 5.0
+    },
+    "hashtags": [
+      "москва", "спб", "россия"
+    ],
+    "search_limit_per_page": 50,
+    "max_pages_per_hashtag": 5,
+    "delay_between_searches_sec": 3.0,
+    "nearby_self_expires_sec": 3600,
+    "nearby_locations": []
+  }
+}

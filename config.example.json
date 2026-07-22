@@ -11,5 +11,33 @@
   "mark_as_read": true,
   "shuffle_targets": true,
   "session_dir": "sessions",
-  "log_file": "maxlooking.log"
+  "log_file": "maxlooking.log",
+  "discovery": {
+    "enabled": true,
+    "use_feed": false,
+    "skip_contacts": true,
+    "users_only": true,
+    "russian_filter": true,
+    "hashtags": [
+      "москва", "спб", "питер", "россия", "мск", "рф",
+      "екатеринбург", "казань", "новосибирск", "краснодар", "сочи",
+      "самара", "ростов", "уфа", "воронеж", "пермь", "волгоград",
+      "красноярск", "тюмень", "омск", "челябинск", "нижнийновгород",
+      "хабаровск", "владивосток", "калининград", "тула", "ярославль",
+      "барнаул", "иркутск", "москвич", "питерский", "русская"
+    ],
+    "search_limit_per_page": 50,
+    "max_pages_per_hashtag": 5,
+    "delay_between_searches_sec": 3.0,
+    "people_nearby": true,
+    "nearby_self_expires_sec": 3600,
+    "nearby_locations": [
+      {"name": "Москва", "lat": 55.7558, "lon": 37.6173},
+      {"name": "Санкт-Петербург", "lat": 59.9343, "lon": 30.3351},
+      {"name": "Казань", "lat": 55.8304, "lon": 49.0661},
+      {"name": "Екатеринбург", "lat": 56.8389, "lon": 60.6057},
+      {"name": "Новосибирск", "lat": 55.0084, "lon": 82.9357},
+      {"name": "Краснодар", "lat": 45.0355, "lon": 38.9753}
+    ]
+  }
 }

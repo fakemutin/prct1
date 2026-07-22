@@ -1,6 +1,6 @@
 # MaxLooking — мультиаккаунтный лайкер историй Telegram
 
-Парсит активные истории из ленты каждого аккаунта и ставит реакцию ❤️.
+Парсит **публичные истории незнакомцев** через глобальный поиск Telegram и ставит ❤️.
 
 ## Быстрый старт
 
@@ -8,35 +8,51 @@
 pip install -r requirements.txt
 cp accounts.example.json accounts.json
 cp config.example.json config.json
+python3 maxlooking.py login
+python3 maxlooking.py discover   # только поиск (без лайков)
+python3 maxlooking.py run        # поиск + лайки
+python3 maxlooking.py check      # @SpamBot
 ```
 
-Заполните `accounts.json` — `api_id`, `api_hash`, `phone` с https://my.telegram.org
+## Откуда берутся истории
 
-```bash
-python3 maxlooking.py login   # код из Telegram для каждого аккаунта
-python3 maxlooking.py run       # парсинг + лайки
-python3 maxlooking.py check     # проверка @SpamBot
+| Источник | API | Кто попадает |
+|----------|-----|--------------|
+| Хештеги (#москва, #россия...) | `stories.searchPosts` | Публичные истории незнакомцев с хештегом |
+| Люди рядом | `contacts.getLocated` | Кто сам включил геолокацию в Telegram |
+| Лента (опц.) | `stories.getAllStories` | Контакты и подписки (`use_feed: true`) |
+
+По умолчанию: **только незнакомцы** (`skip_contacts: true`), **только юзеры** (`users_only: true`).
+
+## RU-фильтр
+
+Прокси-признаки «русскоязычный пользователь» (100% точности нет):
+- `lang_code`: ru, uk, be, kk
+- телефон +7
+- кириллица в имени
+
+**Возраст 18+ через API определить нельзя** — Telegram не отдаёт дату рождения.
+
+## Настройки discovery (`config.json`)
+
+```json
+"discovery": {
+  "enabled": true,
+  "use_feed": false,
+  "skip_contacts": true,
+  "russian_filter": true,
+  "hashtags": ["москва", "спб", "россия"],
+  "max_pages_per_hashtag": 5,
+  "people_nearby": true
+}
 ```
 
-## Как работает
+## Лимиты
 
-1. Каждый аккаунт вызывает `stories.getAllStories` — истории контактов и подписок.
-2. Фильтрует уже лайкнутые (`sent_reaction`), свои и просроченные.
-3. Ставит ❤️ с ротацией между аккаунтами и случайными паузами.
-4. При `FLOOD_WAIT` ждёт указанное время.
+- 20 лайков/час, 80/день на аккаунт (меняйте в `config.json`)
+- Пауза 25–75 сек между лайками
+- При `FLOOD_WAIT` — автоматическое ожидание
 
-## Настройки (`config.json`)
+## Риски
 
-| Параметр | По умолчанию | Описание |
-|----------|--------------|----------|
-| `max_likes_per_account_per_hour` | 20 | Лимит лайков/час на аккаунт |
-| `max_likes_per_account_per_day` | 80 | Лимит лайков/день на аккаунт |
-| `min_delay_sec` / `max_delay_sec` | 25 / 75 | Пауза между лайками |
-| `use_whitelist_only` | false | Лайкать только из `whitelist.txt` |
-| `include_channels` | false | Лайкать истории каналов |
-
-## Важно
-
-- Используйте **прогретые** аккаунты (10–14 дней обычной активности).
-- Не поднимайте лимиты резко — начните с дефолтных.
-- Userbot нарушает ToS Telegram — риск ограничений на вашей стороне.
+Userbot + массовые лайки незнакомцам = высокий риск ограничений. Прогревайте аккаунты 10–14 дней.

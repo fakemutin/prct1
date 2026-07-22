@@ -2,15 +2,18 @@
 """
 Telegram MaxLooking — мультиаккаунтный лайкер историй.
 
-Парсит активные истории из ленты аккаунта (контакты + подписки) через
-stories.getAllStories и ставит реакцию-сердечко.
+Источники историй:
+  1) Лента аккаунта (контакты + подписки) — stories.getAllStories
+  2) Публичный поиск незнакомцев — stories.searchPosts по RU-хештегам/гео
+  3) Люди рядом (опционально) — contacts.getLocated
 
 Запуск:
   pip install -r requirements.txt
-  cp accounts.example.json accounts.json   # заполнить api_id, api_hash, phone
-  cp config.example.json config.json       # при необходимости поправить лимиты
-  python3 maxlooking.py login              # первый вход (код из Telegram)
-  python3 maxlooking.py run                # парсинг + лайки
+  cp accounts.example.json accounts.json
+  cp config.example.json config.json
+  python3 maxlooking.py login
+  python3 maxlooking.py discover   # только поиск, без лайков
+  python3 maxlooking.py run
 """
 
 from __future__ import annotations
@@ -34,11 +37,47 @@ from telethon.errors import (
     SessionPasswordNeededError,
     UserDeactivatedBanError,
 )
-from telethon.tl.types import PeerChannel, PeerUser
+from telethon.tl.types import InputGeoPoint, PeerChannel, PeerUser
 
 BASE_DIR = Path(__file__).resolve().parent
 CONFIG_PATH = BASE_DIR / "config.json"
 ACCOUNTS_PATH = BASE_DIR / "accounts.json"
+
+DEFAULT_RU_HASHTAGS = [
+    "москва", "спб", "питер", "россия", "мск", "рф",
+    "екатеринбург", "казань", "новосибирск", "краснодар", "сочи",
+    "самара", "ростов", "уфа", "воронеж", "пермь", "волгоград",
+    "красноярск", "тюмень", "омск", "челябинск", "нижнийновгород",
+    "хабаровск", "владивосток", "калининград", "тула", "ярославль",
+    "барнаул", "иркутск", "москвич", "питерский", "русская",
+]
+
+DEFAULT_NEARBY_CITIES = [
+    {"name": "Москва", "lat": 55.7558, "lon": 37.6173},
+    {"name": "Санкт-Петербург", "lat": 59.9343, "lon": 30.3351},
+    {"name": "Казань", "lat": 55.8304, "lon": 49.0661},
+    {"name": "Екатеринбург", "lat": 56.8389, "lon": 60.6057},
+    {"name": "Новосибирск", "lat": 55.0084, "lon": 82.9357},
+    {"name": "Краснодар", "lat": 45.0355, "lon": 38.9753},
+]
+
+
+@dataclass
+class DiscoveryConfig:
+    enabled: bool = True
+    use_feed: bool = False
+    skip_contacts: bool = True
+    users_only: bool = True
+    russian_filter: bool = True
+    hashtags: list[str] = field(default_factory=lambda: list(DEFAULT_RU_HASHTAGS))
+    search_limit_per_page: int = 50
+    max_pages_per_hashtag: int = 5
+    delay_between_searches_sec: float = 3.0
+    people_nearby: bool = True
+    nearby_self_expires_sec: int = 3600
+    nearby_locations: list[dict[str, Any]] = field(
+        default_factory=lambda: list(DEFAULT_NEARBY_CITIES)
+    )
 
 
 @dataclass
@@ -56,6 +95,7 @@ class AppConfig:
     shuffle_targets: bool = True
     session_dir: str = "sessions"
     log_file: str = "maxlooking.log"
+    discovery: DiscoveryConfig = field(default_factory=DiscoveryConfig)
 
     @classmethod
     def load(cls, path: Path) -> "AppConfig":
@@ -64,7 +104,16 @@ class AppConfig:
                 f"Нет {path.name}. Скопируйте config.example.json -> config.json"
             )
         data = json.loads(path.read_text(encoding="utf-8"))
-        return cls(**{k: data[k] for k in cls.__dataclass_fields__ if k in data})
+        discovery_raw = data.pop("discovery", {})
+        discovery = DiscoveryConfig(
+            **{
+                k: discovery_raw[k]
+                for k in DiscoveryConfig.__dataclass_fields__
+                if k in discovery_raw
+            }
+        )
+        base = {k: data[k] for k in cls.__dataclass_fields__ if k in data and k != "discovery"}
+        return cls(discovery=discovery, **base)
 
 
 @dataclass
@@ -83,6 +132,7 @@ class StoryTarget:
     story_id: int
     username: str | None = None
     display_name: str | None = None
+    source: str = "feed"
 
 
 @dataclass
@@ -230,6 +280,70 @@ def passes_lists(
     return True
 
 
+async def load_contact_ids(client: TelegramClient) -> set[int]:
+    try:
+        result = await client(functions.contacts.GetContactsRequest(hash=0))
+        return {user.id for user in result.users}
+    except RPCError as exc:
+        logging.warning("Не удалось загрузить контакты: %s", exc)
+        return set()
+
+
+def is_stranger(user_id: int, contact_ids: set[int], cfg: AppConfig) -> bool:
+    if not cfg.discovery.skip_contacts:
+        return True
+    return user_id not in contact_ids
+
+
+def looks_russian_user(user: Any, cfg: AppConfig) -> bool:
+    """Прокси-фильтр RU: lang_code и телефон +7. Возраст через API недоступен."""
+    if not cfg.discovery.russian_filter:
+        return True
+
+    lang = (getattr(user, "lang_code", None) or "").lower()
+    if lang in ("ru", "uk", "be", "kk"):
+        return True
+
+    phone = (getattr(user, "phone", None) or "").strip()
+    if phone.startswith("7") or phone.startswith("+7"):
+        return True
+
+    # Кириллица в имени — слабый, но полезный сигнал для RU-аудитории
+    name = display_name_of(user)
+    if any("\u0400" <= ch <= "\u04ff" for ch in name):
+        return True
+
+    return False
+
+
+def entity_from_peer(peer: Any, users: dict[int, Any], chats: dict[int, Any]) -> Any | None:
+    key = peer_key(peer)
+    if key is None:
+        return None
+    if is_user_peer(peer):
+        return users.get(key)
+    return chats.get(key)
+
+
+def make_target(
+    account_name: str,
+    entity: Any,
+    input_peer: Any,
+    story_id: int,
+    source: str,
+) -> StoryTarget:
+    key = entity.id
+    return StoryTarget(
+        account_name=account_name,
+        peer=input_peer,
+        peer_id=key,
+        story_id=story_id,
+        username=username_of(entity),
+        display_name=display_name_of(entity),
+        source=source,
+    )
+
+
 async def human_delay(cfg: AppConfig) -> None:
     delay = random.uniform(cfg.min_delay_sec, cfg.max_delay_sec)
     logging.debug("Пауза %.1f сек", delay)
@@ -357,6 +471,245 @@ async def fetch_story_targets(
     return targets
 
 
+async def fetch_discovery_by_hashtags(
+    client: TelegramClient,
+    account_name: str,
+    cfg: AppConfig,
+    whitelist: set[str],
+    blacklist: set[str],
+    contact_ids: set[int],
+) -> list[StoryTarget]:
+    """Глобальный поиск публичных историй незнакомцев по RU-хештегам."""
+    disc = cfg.discovery
+    targets: list[StoryTarget] = []
+    hashtags = list(disc.hashtags)
+    random.shuffle(hashtags)
+
+    for hashtag in hashtags:
+        offset = ""
+        pages = 0
+
+        while pages < disc.max_pages_per_hashtag:
+            try:
+                result = await client(
+                    functions.stories.SearchPostsRequest(
+                        hashtag=hashtag,
+                        offset=offset,
+                        limit=disc.search_limit_per_page,
+                    )
+                )
+            except FloodWaitError as exc:
+                logging.warning(
+                    "[%s] FLOOD_WAIT при поиске #%s: %d сек",
+                    account_name,
+                    hashtag,
+                    exc.seconds,
+                )
+                await asyncio.sleep(exc.seconds + random.randint(3, 15))
+                continue
+            except RPCError as exc:
+                logging.warning("[%s] Поиск #%s: %s", account_name, hashtag, exc)
+                break
+
+            users = build_user_map(result.users)
+            chats = build_chat_map(result.chats)
+            found_on_page = 0
+
+            for found in result.stories:
+                peer = found.peer
+                story = found.story
+                key = peer_key(peer)
+                if key is None or not story_is_active(story):
+                    continue
+
+                if disc.users_only and not is_user_peer(peer):
+                    continue
+
+                entity = entity_from_peer(peer, users, chats)
+                if entity is None:
+                    continue
+
+                if getattr(entity, "bot", False):
+                    continue
+
+                if disc.skip_contacts and not is_stranger(key, contact_ids, cfg):
+                    continue
+
+                if not looks_russian_user(entity, cfg):
+                    continue
+
+                username = username_of(entity)
+                if not passes_lists(username, whitelist, blacklist, cfg.use_whitelist_only):
+                    continue
+
+                try:
+                    input_peer = await client.get_input_entity(entity)
+                except (RPCError, ValueError) as exc:
+                    logging.debug("Пропуск peer %s: %s", key, exc)
+                    continue
+
+                targets.append(
+                    make_target(
+                        account_name,
+                        entity,
+                        input_peer,
+                        story.id,
+                        f"hashtag:{hashtag}",
+                    )
+                )
+                found_on_page += 1
+
+            logging.info(
+                "[%s] #%s стр.%d: +%d историй (всего %d)",
+                account_name,
+                hashtag,
+                pages + 1,
+                found_on_page,
+                len(targets),
+            )
+
+            if not getattr(result, "next_offset", None):
+                break
+            offset = result.next_offset
+            pages += 1
+            await asyncio.sleep(disc.delay_between_searches_sec)
+
+    return targets
+
+
+async def fetch_discovery_nearby(
+    client: TelegramClient,
+    account_name: str,
+    cfg: AppConfig,
+    whitelist: set[str],
+    blacklist: set[str],
+    contact_ids: set[int],
+) -> list[StoryTarget]:
+    """Люди рядом (только те, кто сам включил геолокацию в Telegram)."""
+    disc = cfg.discovery
+    if not disc.people_nearby:
+        return []
+
+    targets: list[StoryTarget] = []
+    seen_users: set[int] = set()
+    locations = list(disc.nearby_locations)
+    random.shuffle(locations)
+
+    for loc in locations:
+        lat = float(loc["lat"])
+        lon = float(loc["lon"])
+        city = loc.get("name", f"{lat},{lon}")
+
+        try:
+            updates = await client(
+                functions.contacts.GetLocatedRequest(
+                    geo_point=InputGeoPoint(
+                        lat=lat,
+                        long=lon,
+                        accuracy_radius=500,
+                    ),
+                    self_expires=disc.nearby_self_expires_sec,
+                )
+            )
+        except FloodWaitError as exc:
+            logging.warning(
+                "[%s] FLOOD_WAIT nearby %s: %d сек",
+                account_name,
+                city,
+                exc.seconds,
+            )
+            await asyncio.sleep(exc.seconds + 10)
+            continue
+        except RPCError as exc:
+            logging.warning("[%s] Nearby %s: %s", account_name, city, exc)
+            continue
+
+        nearby_users: list[Any] = []
+        for user in getattr(updates, "users", []) or []:
+            if user.id not in seen_users:
+                seen_users.add(user.id)
+                nearby_users.append(user)
+
+        logging.info(
+            "[%s] Люди рядом (%s): найдено %d",
+            account_name,
+            city,
+            len(nearby_users),
+        )
+
+        for user in nearby_users:
+            if getattr(user, "bot", False):
+                continue
+            if disc.skip_contacts and not is_stranger(user.id, contact_ids, cfg):
+                continue
+            if not looks_russian_user(user, cfg):
+                continue
+
+            username = username_of(user)
+            if not passes_lists(username, whitelist, blacklist, cfg.use_whitelist_only):
+                continue
+
+            try:
+                peer_stories = await client(
+                    functions.stories.GetPeerStoriesRequest(peer=user)
+                )
+            except RPCError:
+                continue
+
+            input_peer = await client.get_input_entity(user)
+            for story in peer_stories.stories.stories:
+                if not story_is_active(story):
+                    continue
+                targets.append(
+                    make_target(
+                        account_name,
+                        user,
+                        input_peer,
+                        story.id,
+                        f"nearby:{city}",
+                    )
+                )
+
+        await asyncio.sleep(disc.delay_between_searches_sec)
+
+    return targets
+
+
+async def collect_all_targets(
+    client: TelegramClient,
+    account_name: str,
+    cfg: AppConfig,
+    whitelist: set[str],
+    blacklist: set[str],
+) -> list[StoryTarget]:
+    contact_ids = await load_contact_ids(client)
+    targets: list[StoryTarget] = []
+
+    if cfg.discovery.enabled:
+        hashtag_targets = await fetch_discovery_by_hashtags(
+            client, account_name, cfg, whitelist, blacklist, contact_ids
+        )
+        targets.extend(hashtag_targets)
+        logging.info("[%s] Поиск по хештегам: %d", account_name, len(hashtag_targets))
+
+        nearby_targets = await fetch_discovery_nearby(
+            client, account_name, cfg, whitelist, blacklist, contact_ids
+        )
+        targets.extend(nearby_targets)
+        logging.info("[%s] Люди рядом: %d", account_name, len(nearby_targets))
+
+    if cfg.discovery.use_feed or not cfg.discovery.enabled:
+        feed_targets = await fetch_story_targets(
+            client, account_name, cfg, whitelist, blacklist
+        )
+        if cfg.discovery.skip_contacts and cfg.discovery.enabled:
+            feed_targets = [t for t in feed_targets if t.peer_id not in contact_ids]
+        targets.extend(feed_targets)
+        logging.info("[%s] Лента: %d", account_name, len(feed_targets))
+
+    return targets
+
+
 async def send_heart(
     client: TelegramClient,
     target: StoryTarget,
@@ -468,19 +821,21 @@ async def process_account(
         await client.disconnect()
 
 
-async def run_maxlooking(cfg: AppConfig, accounts: list[AccountConfig]) -> None:
+async def run_maxlooking(cfg: AppConfig, accounts: list[AccountConfig], discover_only: bool = False) -> None:
     whitelist = load_username_list(BASE_DIR / cfg.whitelist_file)
     blacklist = load_username_list(BASE_DIR / cfg.blacklist_file)
 
     all_targets: list[StoryTarget] = []
     account_stats: dict[str, AccountStats] = {a.name: AccountStats() for a in accounts}
 
-    # 1) Собираем цели со всех аккаунтов
     for account in accounts:
         client = TelegramClient(
             str(session_path(cfg, account)),
             account.api_id,
             account.api_hash,
+            device_model="MaxLooking",
+            system_version="1.0",
+            app_version="1.0",
         )
         await client.connect()
         if not await client.is_user_authorized():
@@ -488,19 +843,14 @@ async def run_maxlooking(cfg: AppConfig, accounts: list[AccountConfig]) -> None:
             await client.disconnect()
             continue
         try:
-            targets = await fetch_story_targets(
+            targets = await collect_all_targets(
                 client, account.name, cfg, whitelist, blacklist
             )
             all_targets.extend(targets)
-            logging.info("[%s] Спарсено историй: %d", account.name, len(targets))
+            logging.info("[%s] Итого спарсено: %d", account.name, len(targets))
         finally:
             await client.disconnect()
 
-    if not all_targets:
-        logging.info("Нет доступных историй в ленте.")
-        return
-
-    # Убираем дубли (peer_id + story_id)
     unique: dict[tuple[int, int], StoryTarget] = {}
     for t in all_targets:
         unique[(t.peer_id, t.story_id)] = t
@@ -509,7 +859,29 @@ async def run_maxlooking(cfg: AppConfig, accounts: list[AccountConfig]) -> None:
     if cfg.shuffle_targets:
         random.shuffle(all_targets)
 
-    logging.info("Уникальных историй к обработке: %d", len(all_targets))
+    by_source: dict[str, int] = {}
+    for t in all_targets:
+        src = t.source.split(":")[0]
+        by_source[src] = by_source.get(src, 0) + 1
+
+    logging.info("Уникальных историй: %d | по источникам: %s", len(all_targets), by_source)
+
+    if not all_targets:
+        logging.info("Истории не найдены. Проверьте discovery.hashtags в config.json")
+        return
+
+    if discover_only:
+        for t in all_targets[:30]:
+            logging.info(
+                "  @%s | %s | story=%s | %s",
+                t.username or t.peer_id,
+                t.display_name,
+                t.story_id,
+                t.source,
+            )
+        if len(all_targets) > 30:
+            logging.info("  ... и ещё %d", len(all_targets) - 30)
+        return
 
     # 2) Ротация аккаунтов — каждый лайк следующим аккаунтом по кругу
     ready_accounts = [
@@ -585,10 +957,11 @@ async def run_maxlooking(cfg: AppConfig, accounts: list[AccountConfig]) -> None:
             stats.likes_day += 1
             processed += 1
             logging.info(
-                "[%s] ❤️ @%s | story=%s | всего %d",
+                "[%s] ❤️ @%s | story=%s | %s | всего %d",
                 account_name,
                 target.username or target.peer_id,
                 target.story_id,
+                target.source,
                 processed,
             )
         except FloodWaitError as exc:
@@ -630,8 +1003,8 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Telegram MaxLooking")
     parser.add_argument(
         "command",
-        choices=["login", "run", "check"],
-        help="login — авторизация аккаунтов, run — парсинг+лайки, check — статус SpamBot",
+        choices=["login", "run", "discover", "check"],
+        help="login — вход | discover — только поиск | run — поиск+лайки | check — SpamBot",
     )
     return parser.parse_args()
 
@@ -652,7 +1025,11 @@ async def main() -> None:
         await check_spambot(accounts, cfg)
         return
 
-    await run_maxlooking(cfg, accounts)
+    if args.command == "discover":
+        await run_maxlooking(cfg, accounts, discover_only=True)
+        return
+
+    await run_maxlooking(cfg, accounts, discover_only=False)
 
 
 if __name__ == "__main__":

@@ -4,5 +4,6 @@ __pycache__/
 *.session-journal
 accounts.json
 config.json
+maxlooking_data.json
 maxlooking.log
 sessions/

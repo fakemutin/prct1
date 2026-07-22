@@ -1,70 +1,33 @@
-# MaxLooking — лайкер историй через открытые каналы
+# MAXLOOKING PRO
 
-## Схема работы
-
-```
-Каналы (channels.txt + уже подписанные)
-    → вступить (auto_join)
-    → iter_participants (до 300 чел/канал)
-    → getPeerStories у каждого
-    → ❤️ лайк (18/час, пауза 2.5–4 мин)
-```
-
-## Быстрый старт
+Всё в одном файле. Запуск:
 
 ```bash
 pip install -r requirements.txt
-cp accounts.example.json accounts.json
-cp config.example.json config.json
+python3 maxlooking.py
 ```
 
-1. Заполни `accounts.json` (api_id, api_hash, phone)
-2. Добавь каналы в `channels.txt` (username без @)
-3. Запуск:
+## Меню
 
-```bash
-python3 maxlooking.py login
-python3 maxlooking.py discover   # только поиск
-python3 maxlooking.py run        # поиск + лайки
-```
+| # | Действие |
+|---|----------|
+| **1** | 🚀 БЫСТРЫЙ СТАРТ — настройка → вход → поиск 200 каналов → лайки |
+| 2 | Настроить API (my.telegram.org) и аккаунты |
+| 3 | Найти 200 открытых каналов |
+| 4 | Лайкать истории |
+| 5 | Только поиск (без лайков) |
+| 6 | Настройки лимитов |
+| 7 | Статус @SpamBot |
 
-## channels.txt
+Данные сохраняются в `maxlooking_data.json` рядом со скриптом.
 
-```
-moscowchat
-piter_chat
-dating_ru
-```
+## Автопоиск каналов
 
-Также сканируются **уже подписанные** публичные каналы (`use_joined_public_channels: true`).
+- 150+ поисковых запросов (города РФ, знакомства, чаты)
+- Проверка: `participants_hidden == false` + минимум 3 видимых участника
+- Цель: 200 каналов с открытым списком
 
-## Лимиты (по умолчанию)
+## Лимиты по умолчанию
 
-| Параметр | Значение |
-|----------|----------|
-| Лайков/час/аккаунт | 18 |
-| Лайков/день/аккаунт | 200 |
-| Пауза между лайками | 150–250 сек (~15–20/час) |
-| Участников/канал | 300 |
-| Каналов за прогон | 15 |
-
-## config.json — каналы
-
-```json
-"channels": {
-  "enabled": true,
-  "channels_file": "channels.txt",
-  "auto_join": true,
-  "use_joined_public_channels": true,
-  "max_participants_per_channel": 300,
-  "max_channels_per_run": 15
-}
-```
-
-## FLOOD_WAIT
-
-При `FLOOD_WAIT` скрипт ждёт автоматически. Лимит 15–20/час снижает частоту ошибок.
-
-## Риски
-
-Массовый парс участников каналов + лайки незнакомцам = риск ограничений @SpamBot. Используй на свой страх и риск.
+- 18 лайков/час, 200/день
+- Пауза 150–250 сек между лайками

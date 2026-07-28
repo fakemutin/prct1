@@ -19,6 +19,10 @@
           localStorage.setItem('onboarding_completed', 'true');
           var theme = localStorage.getItem('satka-cabinet-theme-preset') || 'dark';
           document.documentElement.setAttribute('data-satka-theme', theme);
+          document.documentElement.classList.toggle('dark', theme !== 'light');
+          document.documentElement.classList.toggle('light', theme === 'light');
+          var colors = { dark: '#030303', light: '#f4f4f6', midnight: '#080d18', aurora: '#061210', rose: '#10080c' };
+          document.body.style.backgroundColor = colors[theme] || '#030303';
         } catch (e) {}
         var mobile = window.matchMedia('(max-width: 768px)').matches;
         if (mobile) document.documentElement.classList.add('satka-mobile');
@@ -66,10 +70,10 @@
     <link rel="modulepreload" crossorigin href="/assets/vendor-cmdk-CTFjeOaw.js" />
     <link rel="stylesheet" crossorigin href="/assets/index-BRTvHGRZ.css" />
     <link rel="stylesheet" href="/satka-theme.css?v=12" />
-    <link rel="stylesheet" href="/satka-theme-presets.css?v=2" />
+    <link rel="stylesheet" href="/satka-theme-presets.css?v=3" />
     <link rel="stylesheet" href="/satka-support-ui.css?v=4" />
-    <link rel="stylesheet" href="/satka-referral-wheel-cabinet.css?v=7" />
-    <link rel="stylesheet" href="/satka-referral-ui.css?v=1" />
+    <link rel="stylesheet" href="/satka-referral-wheel-cabinet.css?v=9" />
+    <link rel="stylesheet" href="/satka-referral-ui.css?v=2" />
     <link rel="stylesheet" href="/satka-cabinet-fx.css?v=2" />
     <script defer src="/satka-i18n.js?v=2"></script>
     <script defer src="/satka-cabinet-api.js?v=1"></script>
@@ -80,10 +84,10 @@
     <script defer src="/satka-support-ui.js?v=3"></script>
     <script defer src="/satka-support-tickets.js?v=2"></script>
     <script defer src="/satka-referral-ui.js?v=1"></script>
-    <script defer src="/satka-referral-wheel-cabinet.js?v=8"></script>
+    <script defer src="/satka-referral-wheel-cabinet.js?v=9"></script>
     <script defer src="/satka-cabinet-fx.js?v=2"></script>
     <script defer src="/satka-enhance.js?v=7"></script>
-    <script defer src="/satka-theme-switcher.js?v=2"></script>
+    <script defer src="/satka-theme-switcher.js?v=3"></script>
     <script defer src="/satka-login-fix.js?v=3"></script>
   </head>
   <body>

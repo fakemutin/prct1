@@ -88,15 +88,15 @@
 
   function shortLabel(seg) {
     var label = (seg.short || seg.title || '').trim();
-    if (label.length <= 12) return label;
-    return label.slice(0, 11) + '…';
+    if (label.length <= 8) return label;
+    return label.slice(0, 7) + '…';
   }
 
   function labelFontSize(label, n) {
     var len = label.length;
-    if (n > 10) return len > 9 ? 7 : 8;
-    if (n > 8) return len > 10 ? 7.5 : len > 7 ? 8.5 : 9.5;
-    return len > 10 ? 8.5 : len > 7 ? 9.5 : 10.5;
+    if (n > 10) return len > 7 ? 9 : 10;
+    if (n > 8) return len > 7 ? 9.5 : 10.5;
+    return len > 7 ? 10 : 11.5;
   }
 
   function polar(cx, cy, r, deg) {
@@ -115,8 +115,8 @@
     var size = 420;
     var cx = size / 2;
     var cy = size / 2;
-    var outer = size * 0.47;
-    var inner = size * 0.12;
+    var outer = size * 0.48;
+    var inner = size * 0.14;
     var step = 360 / n;
     var start = -90;
     var parts = [];
@@ -129,44 +129,51 @@
       var p1 = polar(cx, cy, outer, a1);
       var large = step > 180 ? 1 : 0;
       var dark = i % 2 === 0;
-      var fill = dark ? '#0a0a0a' : '#f5f5f5';
-      var stroke = dark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.1)';
+      var fill = dark ? '#111111' : '#f7f7f7';
+      var stroke = dark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.08)';
       var d =
         'M ' + cx + ' ' + cy +
         ' L ' + p0.x + ' ' + p0.y +
         ' A ' + outer + ' ' + outer + ' 0 ' + large + ' 1 ' + p1.x + ' ' + p1.y + ' Z';
       parts.push(
         '<path class="satka-wheel-seg" data-seg-index="' + i + '" d="' + d +
-        '" fill="' + fill + '" stroke="' + stroke + '" stroke-width="1"/>'
+        '" fill="' + fill + '" stroke="' + stroke + '" stroke-width="1.2"/>'
       );
 
       var mid = a0 + step / 2;
-      var lp = polar(cx, cy, outer * 0.66, mid);
+      var iconPos = polar(cx, cy, outer * 0.58, mid);
+      var labelPos = polar(cx, cy, outer * 0.8, mid);
       var label = shortLabel(segments[i]);
       var fs = labelFontSize(label, n);
-      var textFill = dark ? '#ffffff' : '#0a0a0a';
-      var strokeColor = dark ? 'rgba(0,0,0,0.35)' : 'rgba(255,255,255,0.5)';
-      var icInner = segIconSvg(segments[i], dark).replace(/<svg[^>]*>/, '').replace(/<\/svg>/, '');
+      var pillBg = dark ? '#ffffff' : '#111111';
+      var pillText = dark ? '#111111' : '#ffffff';
+      var iconColor = dark ? '#ffffff' : '#111111';
+      var pillW = Math.min(Math.max(label.length * 6.2 + 10, 28), 56);
+      var pillH = 15;
+      var icInner = segIconSvg(segments[i], dark)
+        .replace(/currentColor/g, iconColor)
+        .replace(/<svg[^>]*>/, '')
+        .replace(/<\/svg>/, '');
 
       labels.push(
-        '<g transform="rotate(' + (mid + 90) + ' ' + lp.x + ' ' + lp.y + ')">' +
-        '<g class="satka-wheel-seg-icon" transform="translate(' + (lp.x - 9) + ',' + (lp.y - 18) + ') scale(0.75)">' + icInner + '</g>' +
-        '<text class="satka-wheel-seg-label" x="' + lp.x + '" y="' + (lp.y + 10) +
-        '" text-anchor="middle" fill="' + textFill + '" font-size="' + fs +
-        '" font-weight="800" style="paint-order:stroke fill;stroke:' + strokeColor + ';stroke-width:0.6px">' +
+        '<g class="satka-wheel-seg-content" transform="rotate(' + (mid + 90) + ' ' + labelPos.x + ' ' + labelPos.y + ')">' +
+        '<g class="satka-wheel-seg-icon" transform="translate(' + (iconPos.x - 13) + ',' + (iconPos.y - 28) + ') scale(1.15)">' + icInner + '</g>' +
+        '<rect class="satka-wheel-seg-pill" x="' + (labelPos.x - pillW / 2) + '" y="' + (labelPos.y - 4) +
+        '" width="' + pillW + '" height="' + pillH + '" rx="5" fill="' + pillBg + '" opacity="0.96"/>' +
+        '<text class="satka-wheel-seg-label" x="' + labelPos.x + '" y="' + (labelPos.y + 7) +
+        '" text-anchor="middle" fill="' + pillText + '" font-size="' + fs +
+        '" font-weight="800" font-family="Inter,system-ui,sans-serif">' +
         escapeXml(label) + '</text></g>'
       );
     }
 
-    var ring =
-      '<circle cx="' + cx + '" cy="' + cy + '" r="' + (outer + 4) +
-      '" fill="none" class="satka-wheel-outer-ring" stroke="rgba(255,255,255,0.3)" stroke-width="2"/>';
-
     return (
       '<svg class="satka-wheel-svg" viewBox="0 0 ' + size + ' ' + size + '" role="img" aria-label="' + t('wheel.heading') + '">' +
       '<defs><filter id="satkaWheelGlow"><feGaussianBlur stdDeviation="2" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>' +
-      ring + parts.join('') +
-      '<circle cx="' + cx + '" cy="' + cy + '" r="' + inner + '" fill="var(--satka-wheel-hub, #0a0a0a)" stroke="rgba(255,255,255,0.45)" stroke-width="2"/>' +
+      '<circle cx="' + cx + '" cy="' + cy + '" r="' + (outer + 3) +
+      '" fill="none" class="satka-wheel-outer-ring" stroke="rgba(255,255,255,0.2)" stroke-width="2.5"/>' +
+      parts.join('') +
+      '<circle cx="' + cx + '" cy="' + cy + '" r="' + inner + '" fill="var(--satka-wheel-hub, #0a0a0a)" stroke="rgba(255,255,255,0.5)" stroke-width="2.5"/>' +
       labels.join('') + '</svg>'
     );
   }
@@ -183,8 +190,6 @@
     wrap.className = 'satka-cabinet-wheel-block';
     wrap.dataset.satkaWheel = '1';
     wrap.innerHTML =
-      '<div class="satka-wheel-sparkles" aria-hidden="true"></div>' +
-      '<div class="satka-wheel-aurora" aria-hidden="true"></div>' +
       '<h3>' + icon('spark', 'satka-wheel-title-icon') + '<span>' + t('wheel.heading') + '</span></h3>' +
       '<p class="satka-cabinet-wheel-lead">' + t('wheel.lead') + '</p>' +
       '<div class="satka-cabinet-wheel-stats" data-wheel-stats></div>' +

@@ -244,11 +244,12 @@ html.satka-in-telegram .satka-cabinet-wheel-block {
   box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.06) !important;
 }
 
-/* Status badges */
+/* Status badges — neutral, theme-aware */
 #root [class*='success'],
 #root [class*='badge'][class*='green'] {
-  background: rgba(34, 197, 94, 0.14) !important;
-  color: #86efac !important;
+  background: var(--satka-surface, rgba(255, 255, 255, 0.06)) !important;
+  color: var(--satka-text-strong, #fff) !important;
+  border: 1px solid var(--satka-border, rgba(255, 255, 255, 0.12)) !important;
   border-radius: var(--satka-pill) !important;
 }
 

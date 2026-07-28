@@ -1,0 +1,761 @@
+/* SatkaVPN cabinet — website-matched design, performance-first */
+
+:root {
+  color-scheme: dark;
+  --satka-bg: #030303;
+  --satka-surface: rgba(255, 255, 255, 0.02);
+  --satka-border: rgba(255, 255, 255, 0.08);
+  --satka-border-hover: rgba(255, 255, 255, 0.16);
+  --satka-text: #ffffff;
+  --satka-muted: #888888;
+  --satka-dim: #666666;
+  --satka-ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --satka-radius: 1rem;
+  --satka-pill: 999px;
+  --satka-shell: min(56rem, 96vw);
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  background-color: var(--satka-bg) !important;
+  color: var(--satka-text);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  overflow-x: clip;
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+}
+
+html.satka-mobile #root {
+  padding-bottom: calc(4.5rem + env(safe-area-inset-bottom));
+}
+
+#root {
+  position: relative;
+  z-index: 2;
+  contain: layout style;
+}
+
+/* ── Decorative shell (static on mobile / low-perf) ── */
+.satka-shell {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.satka-bg {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse 130% 90% at 50% -30%, #141414 0%, #030303 60%);
+}
+
+.satka-orb {
+  position: absolute;
+  border-radius: 50%;
+  opacity: 0.85;
+}
+
+.satka-orb-1 {
+  width: min(45vw, 420px);
+  height: min(45vw, 420px);
+  top: -12%;
+  left: -8%;
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.16) 0%, transparent 70%);
+}
+
+.satka-orb-2 {
+  width: min(35vw, 320px);
+  height: min(35vw, 320px);
+  right: -6%;
+  top: 38%;
+  background: radial-gradient(circle, rgba(180, 180, 180, 0.1) 0%, transparent 70%);
+}
+
+.satka-orb-3 {
+  width: min(28vw, 260px);
+  height: min(28vw, 260px);
+  left: 28%;
+  bottom: -4%;
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.07) 0%, transparent 70%);
+}
+
+html:not(.satka-low-perf) .satka-orb-1 {
+  filter: blur(60px);
+  animation: satka-float1 24s var(--satka-ease) infinite alternate;
+}
+
+html:not(.satka-low-perf) .satka-orb-2 {
+  filter: blur(50px);
+  animation: satka-float2 30s var(--satka-ease) infinite alternate-reverse;
+}
+
+html:not(.satka-low-perf) .satka-orb-3 {
+  filter: blur(40px);
+  animation: satka-float3 20s var(--satka-ease) infinite alternate;
+}
+
+@keyframes satka-float1 {
+  to { transform: translate(4%, 6%) scale(1.05); }
+}
+
+@keyframes satka-float2 {
+  to { transform: translate(-5%, -3%) scale(1.04); }
+}
+
+@keyframes satka-float3 {
+  to { transform: translate(3%, -5%); }
+}
+
+.satka-scroll-progress {
+  position: fixed;
+  top: 0;
+  left: 0;
+  height: 2px;
+  width: 0;
+  z-index: 100;
+  background: linear-gradient(90deg, transparent, #fff, transparent);
+  transition: width 0.08s linear;
+}
+
+/* ── Performance: tame heavy React/motion effects ── */
+html.satka-low-perf *,
+html.satka-low-perf *::before,
+html.satka-low-perf *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+}
+
+html.satka-low-perf .satka-orb {
+  filter: none !important;
+  animation: none !important;
+}
+
+/* Wheel spin must stay smooth in Telegram mini app */
+html.satka-low-perf .satka-cabinet-wheel-rotor,
+html.satka-in-telegram .satka-cabinet-wheel-rotor {
+  transition-duration: 0ms !important;
+}
+
+html.satka-in-telegram .satka-cabinet-wheel-block {
+  overflow: visible;
+  padding-left: 0.5rem;
+  padding-right: 0.5rem;
+}
+
+/* Avoid universal attribute selectors — they force full-tree style recalc */
+
+/* ── Cabinet app surfaces ── */
+#root main,
+#root [role='main'] {
+  max-width: var(--satka-shell);
+  margin-left: auto;
+  margin-right: auto;
+  padding-left: max(0.75rem, env(safe-area-inset-left));
+  padding-right: max(0.75rem, env(safe-area-inset-right));
+}
+
+#root [class*='card'],
+#root [class*='Card'] {
+  border-radius: var(--satka-radius) !important;
+  border-color: var(--satka-border) !important;
+  background: var(--satka-surface) !important;
+  box-shadow: none !important;
+}
+
+/* Disable onboarding tour — breaks navigation on mobile */
+.onboarding-overlay,
+.onboarding-spotlight,
+.onboarding-tooltip {
+  display: none !important;
+  pointer-events: none !important;
+}
+
+/* Primary buttons — website pill style (auth/forms only) */
+#root form button[type='submit']:not([class*='ghost']):not([class*='outline']):not([class*='link']),
+#root [data-page='auth'] button[class*='bg-primary'],
+#root a[class*='bg-primary'] {
+  border-radius: var(--satka-pill) !important;
+  background: #fff !important;
+  color: #000 !important;
+  border: 1px solid #fff !important;
+  font-weight: 600 !important;
+  box-shadow: 0 0 24px rgba(255, 255, 255, 0.06) !important;
+  transition: box-shadow 0.3s var(--satka-ease), transform 0.2s ease !important;
+}
+
+#root button[class*='bg-primary']:hover,
+#root a[class*='bg-primary']:hover,
+#root form button[type='submit']:hover {
+  box-shadow: 0 0 36px rgba(255, 255, 255, 0.14) !important;
+  transform: translateY(-1px);
+}
+
+#root button[class*='outline'],
+#root a[class*='outline'],
+#root button[class*='ghost'] {
+  border-radius: var(--satka-pill) !important;
+  border-color: rgba(255, 255, 255, 0.18) !important;
+  background: rgba(255, 255, 255, 0.04) !important;
+}
+
+/* Bottom nav — theme-aware */
+#root nav,
+#root [class*='BottomNav'],
+#root [class*='bottom-nav'] {
+  background: var(--satka-nav-bg, rgba(3, 3, 3, 0.94)) !important;
+  backdrop-filter: blur(12px) !important;
+  -webkit-backdrop-filter: blur(12px) !important;
+  border-top: 1px solid var(--satka-border, rgba(255, 255, 255, 0.06)) !important;
+}
+
+#root header,
+#root [class*='Header'] {
+  background: var(--satka-header-bg, rgba(3, 3, 3, 0.92)) !important;
+  backdrop-filter: blur(12px) !important;
+  -webkit-backdrop-filter: blur(12px) !important;
+  border-bottom: 1px solid var(--satka-border, rgba(255, 255, 255, 0.06)) !important;
+}
+
+#root input,
+#root textarea,
+#root select {
+  border-radius: 0.75rem !important;
+  background: rgba(255, 255, 255, 0.04) !important;
+  border-color: rgba(255, 255, 255, 0.1) !important;
+}
+
+#root input:focus,
+#root textarea:focus,
+#root select:focus {
+  border-color: rgba(255, 255, 255, 0.28) !important;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.06) !important;
+}
+
+/* Status badges */
+#root [class*='success'],
+#root [class*='badge'][class*='green'] {
+  background: rgba(34, 197, 94, 0.14) !important;
+  color: #86efac !important;
+  border-radius: var(--satka-pill) !important;
+}
+
+/* Scrollbar */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.16) transparent;
+}
+
+/* ── Injected home sections (satka-enhance.js) ── */
+.satka-home {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 600px;
+  margin-bottom: 1.25rem;
+}
+
+.satka-hero {
+  padding: 0.25rem 0 1.25rem;
+}
+
+.satka-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.85rem;
+  color: var(--satka-dim);
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.satka-tag::before {
+  content: '';
+  width: 20px;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--satka-dim));
+}
+
+.satka-hero h2 {
+  margin: 0 0 0.65rem;
+  font-size: clamp(1.55rem, 5vw, 2.15rem);
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1.08;
+}
+
+html:not(.satka-low-perf) .satka-hero h2 {
+  background: linear-gradient(120deg, #fff 0%, #c8c8c8 45%, #fff 90%);
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: satka-shimmer 5s linear infinite;
+}
+
+@keyframes satka-shimmer {
+  to { background-position: 200% center; }
+}
+
+.satka-hero p {
+  margin: 0;
+  color: var(--satka-muted);
+  font-size: 0.92rem;
+  line-height: 1.65;
+  max-width: 28rem;
+}
+
+.satka-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.55rem;
+  margin: 1rem 0 1.15rem;
+  list-style: none;
+  padding: 0;
+}
+
+.satka-stats li {
+  padding: 0.75rem 0.65rem;
+  border: 1px solid var(--satka-border);
+  border-radius: 0.85rem;
+  background: rgba(255, 255, 255, 0.02);
+  transition: transform 0.3s var(--satka-ease), border-color 0.3s ease;
+}
+
+html:not(.satka-low-perf) .satka-stats li:hover {
+  transform: translateY(-2px);
+  border-color: rgba(255, 255, 255, 0.14);
+}
+
+.satka-stats strong {
+  display: block;
+  font-size: 1.05rem;
+  font-weight: 700;
+  margin-bottom: 0.15rem;
+}
+
+.satka-stats span {
+  color: var(--satka-muted);
+  font-size: 0.68rem;
+  line-height: 1.35;
+}
+
+.satka-section-head {
+  margin: 1.1rem 0 0.65rem;
+}
+
+.satka-section-head h3 {
+  margin: 0 0 0.25rem;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.satka-section-head p {
+  margin: 0;
+  color: var(--satka-muted);
+  font-size: 0.82rem;
+}
+
+/* Feature slider */
+.satka-slider-wrap {
+  position: relative;
+  margin: 0 -0.25rem;
+}
+
+.satka-slider {
+  display: flex;
+  gap: 0.75rem;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  scroll-behavior: smooth;
+  -webkit-overflow-scrolling: touch;
+  padding: 0.25rem 0.25rem 0.75rem;
+  scrollbar-width: none;
+}
+
+.satka-slider::-webkit-scrollbar {
+  display: none;
+}
+
+.satka-slide {
+  flex: 0 0 min(82vw, 17rem);
+  scroll-snap-align: start;
+  padding: 1.1rem;
+  border-radius: var(--satka-radius);
+  border: 1px solid var(--satka-border);
+  background: rgba(255, 255, 255, 0.02);
+  transition: transform 0.35s var(--satka-ease), border-color 0.3s ease, box-shadow 0.35s ease;
+}
+
+html:not(.satka-low-perf) .satka-slide:hover {
+  transform: translateY(-4px);
+  border-color: var(--satka-border-hover);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.35);
+}
+
+.satka-slide-icon {
+  width: 2rem;
+  height: 2rem;
+  margin-bottom: 0.75rem;
+  color: #fff;
+}
+
+.satka-slide h4 {
+  margin: 0 0 0.35rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.satka-slide p {
+  margin: 0;
+  color: var(--satka-muted);
+  font-size: 0.82rem;
+  line-height: 1.55;
+}
+
+.satka-dots {
+  display: flex;
+  justify-content: center;
+  gap: 0.35rem;
+  margin-top: 0.15rem;
+}
+
+.satka-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  border: none;
+  padding: 0;
+  background: rgba(255, 255, 255, 0.18);
+  cursor: pointer;
+}
+
+.satka-dot.active {
+  background: #fff;
+  transform: scale(1.2);
+}
+
+/* Marquee */
+.satka-marquee-wrap {
+  overflow: hidden;
+  margin: 0.5rem 0 1rem;
+  mask-image: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent);
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent);
+}
+
+html.satka-low-perf .satka-marquee-track {
+  animation: none !important;
+}
+
+.satka-marquee-track {
+  display: flex;
+  gap: 0.65rem;
+  width: max-content;
+  animation: satka-marquee 36s linear infinite;
+}
+
+.satka-marquee-track span {
+  flex-shrink: 0;
+  padding: 0.5rem 1rem;
+  border: 1px solid var(--satka-border);
+  border-radius: var(--satka-pill);
+  font-size: 0.8rem;
+  color: var(--satka-muted);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+@keyframes satka-marquee {
+  to { transform: translateX(-50%); }
+}
+
+/* Quick links */
+.satka-quick-links {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.6rem;
+  margin: 0.75rem 0 1rem;
+}
+
+.satka-quick-link {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2.65rem;
+  padding: 0.6rem 0.8rem;
+  border-radius: var(--satka-pill);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.04);
+  color: #fff;
+  font-size: 0.84rem;
+  font-weight: 600;
+  text-decoration: none;
+  transition: border-color 0.2s ease, background 0.2s ease;
+}
+
+.satka-quick-link:hover {
+  border-color: rgba(255, 255, 255, 0.32);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.satka-quick-link.accent {
+  background: #fff;
+  color: #000;
+  border-color: #fff;
+}
+
+/* Mini FAQ */
+.satka-faq {
+  margin: 0.5rem 0 1rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.satka-faq details {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.satka-faq summary {
+  cursor: pointer;
+  padding: 0.85rem 0;
+  font-size: 0.88rem;
+  font-weight: 500;
+  list-style: none;
+}
+
+.satka-faq summary::-webkit-details-marker {
+  display: none;
+}
+
+.satka-faq p {
+  margin: 0 0 0.85rem;
+  color: var(--satka-muted);
+  font-size: 0.82rem;
+  line-height: 1.6;
+}
+
+.satka-faq a {
+  color: #fff;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* Reveal (IntersectionObserver in JS) */
+.satka-reveal {
+  opacity: 0;
+  transform: translateY(18px);
+  transition: opacity 0.65s var(--satka-ease), transform 0.65s var(--satka-ease);
+}
+
+.satka-reveal.visible {
+  opacity: 1;
+  transform: none;
+}
+
+html.satka-low-perf .satka-reveal {
+  opacity: 1;
+  transform: none;
+}
+
+@media (max-width: 768px) {
+  :root {
+    --satka-shell: 100%;
+  }
+
+  .satka-shell .satka-orb-2,
+  .satka-shell .satka-orb-3 {
+    display: none;
+  }
+
+  .satka-scroll-progress {
+    display: none;
+  }
+
+  #root main,
+  #root [role='main'] {
+    padding-left: max(1rem, env(safe-area-inset-left));
+    padding-right: max(1rem, env(safe-area-inset-right));
+    padding-top: 0.25rem;
+  }
+
+  #root nav,
+  #root [class*='BottomNav'],
+  #root [class*='bottom-nav'] {
+    padding-bottom: env(safe-area-inset-bottom) !important;
+    min-height: calc(3.5rem + env(safe-area-inset-bottom)) !important;
+  }
+
+  #root nav a,
+  #root nav button,
+  #root [class*='BottomNav'] a,
+  #root [class*='BottomNav'] button {
+    min-height: 2.75rem;
+    font-size: 0.7rem !important;
+  }
+
+  #root input,
+  #root textarea,
+  #root select,
+  #root button {
+    font-size: 16px !important;
+  }
+
+  #root h1 {
+    font-size: 1.35rem !important;
+    line-height: 1.2 !important;
+  }
+
+  .satka-deeplink-login {
+    max-width: none;
+    margin-left: 0;
+    margin-right: 0;
+  }
+
+  .satka-stats {
+    grid-template-columns: 1fr;
+  }
+
+  .satka-quick-links {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 480px) {
+  .satka-stats {
+    grid-template-columns: 1fr;
+  }
+
+  .satka-quick-links {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .satka-marquee-track,
+  .satka-orb {
+    animation: none !important;
+  }
+
+  .satka-reveal {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* ── Deeplink login (browser fallback when Telegram widget domain is invalid) ── */
+.satka-deeplink-login {
+  width: 100%;
+  max-width: 22rem;
+  margin: 0 auto 1.25rem;
+  padding: 1.25rem;
+  border-radius: var(--satka-radius);
+  border: 1px solid var(--satka-border);
+  background: rgba(255, 255, 255, 0.03);
+  text-align: center;
+}
+
+.satka-deeplink-title {
+  margin: 0 0 0.35rem;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--satka-text);
+}
+
+.satka-deeplink-hint {
+  margin: 0 0 1rem;
+  font-size: 0.75rem;
+  line-height: 1.45;
+  color: var(--satka-muted);
+}
+
+.satka-deeplink-open {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  padding: 0.75rem 1rem;
+  border-radius: 0.75rem;
+  background: #54a9eb;
+  color: #fff;
+  font-size: 0.875rem;
+  font-weight: 600;
+  text-decoration: none;
+  transition: background 0.2s ease;
+}
+
+.satka-deeplink-open:hover {
+  background: #4a96d2;
+}
+
+.satka-deeplink-or {
+  margin: 1rem 0 0.5rem;
+  font-size: 0.6875rem;
+  color: var(--satka-dim);
+}
+
+.satka-deeplink-cmd {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.625rem 0.75rem;
+  border: 1px solid var(--satka-border);
+  border-radius: 0.625rem;
+  background: rgba(0, 0, 0, 0.35);
+  color: var(--satka-text);
+  cursor: pointer;
+  text-align: left;
+}
+
+.satka-deeplink-cmd code {
+  font-size: 0.6875rem;
+  word-break: break-all;
+  color: #c8e7ff;
+}
+
+.satka-deeplink-copy {
+  flex-shrink: 0;
+  font-size: 0.625rem;
+  color: var(--satka-muted);
+}
+
+.satka-deeplink-wait {
+  margin: 0.75rem 0 0;
+  font-size: 0.75rem;
+  color: #7dd3a8;
+}
+
+.satka-legal-note {
+  position: fixed;
+  right: 8px;
+  bottom: 6px;
+  z-index: 2;
+  max-width: min(42vw, 280px);
+  margin: 0;
+  font-size: 9px;
+  line-height: 1.3;
+  color: rgba(255, 255, 255, 0.2);
+  pointer-events: none;
+  user-select: none;
+}
+
+html.satka-cabinet-fullscreen body,
+html.satka-tg-desktop body {
+  max-width: 100%;
+}
+
+@keyframes satkaLogoFloat {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-10px); }
+}

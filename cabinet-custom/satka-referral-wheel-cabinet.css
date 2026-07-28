@@ -1,0 +1,448 @@
+/* Referral wheel — theme-aware, SVG icons, readable labels */
+
+.satka-cabinet-wheel-block {
+  --satka-wheel-surface: var(--satka-card-bg, rgba(255, 255, 255, 0.04));
+  --satka-wheel-border: var(--satka-border, rgba(255, 255, 255, 0.14));
+  --satka-wheel-text: var(--satka-text, #f5f5f5);
+  --satka-wheel-muted: var(--satka-text-muted, rgba(255, 255, 255, 0.62));
+  --satka-wheel-accent: var(--satka-accent, #ffffff);
+  --satka-wheel-hub: #0a0a0a;
+  position: relative;
+  margin: 1rem 0 2rem;
+  padding: 1.5rem 1.25rem 1.65rem;
+  border-radius: 1.35rem;
+  border: 1px solid var(--satka-wheel-border);
+  background:
+    radial-gradient(120% 80% at 50% -20%, color-mix(in srgb, var(--satka-wheel-accent) 8%, transparent), transparent 55%),
+    linear-gradient(165deg, var(--satka-wheel-surface) 0%, color-mix(in srgb, var(--satka-bg, #030303) 88%, transparent) 58%);
+  color: var(--satka-wheel-text);
+  text-align: center;
+  overflow: visible;
+  animation: satkaWheelBlockIn 0.75s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.satka-wheel-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.satka-wheel-icon svg {
+  width: 1em;
+  height: 1em;
+}
+
+.satka-wheel-aurora {
+  position: absolute;
+  inset: -40% -20%;
+  pointer-events: none;
+  background: conic-gradient(
+    from 0deg,
+    transparent,
+    color-mix(in srgb, var(--satka-wheel-accent) 6%, transparent),
+    transparent,
+    color-mix(in srgb, var(--satka-wheel-accent) 4%, transparent),
+    transparent
+  );
+  animation: satkaWheelAurora 10s linear infinite;
+  opacity: 0.7;
+}
+
+.satka-wheel-sparkles {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    radial-gradient(1.5px 1.5px at 12% 22%, color-mix(in srgb, var(--satka-wheel-accent) 90%, transparent), transparent),
+    radial-gradient(1px 1px at 82% 18%, color-mix(in srgb, var(--satka-wheel-accent) 70%, transparent), transparent),
+    radial-gradient(1px 1px at 48% 78%, color-mix(in srgb, var(--satka-wheel-accent) 80%, transparent), transparent);
+  animation: satkaSparkleShift 7s linear infinite;
+  opacity: 0.5;
+}
+
+.satka-cabinet-wheel-block h3 {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin: 0 0 0.4rem;
+  font-size: 1.2rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--satka-wheel-text);
+}
+.satka-wheel-title-icon svg {
+  width: 1.25em;
+  height: 1.25em;
+  opacity: 0.9;
+}
+
+.satka-cabinet-wheel-lead {
+  position: relative;
+  margin: 0 0 1rem;
+  font-size: 0.82rem;
+  color: var(--satka-wheel-muted);
+  line-height: 1.45;
+}
+
+.satka-cabinet-wheel-stats {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  justify-content: center;
+  margin-bottom: 1.1rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.satka-wheel-stat {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.38rem 0.8rem;
+  border-radius: 999px;
+  border: 1px solid var(--satka-wheel-border);
+  background: color-mix(in srgb, var(--satka-bg, #000) 55%, transparent);
+  color: var(--satka-wheel-text);
+}
+.satka-wheel-stat .satka-wheel-icon svg {
+  width: 0.95em;
+  height: 0.95em;
+  opacity: 0.85;
+}
+
+.satka-wheel-stat-hot {
+  border-color: color-mix(in srgb, var(--satka-wheel-accent) 50%, transparent) !important;
+  box-shadow: 0 0 22px color-mix(in srgb, var(--satka-wheel-accent) 22%, transparent);
+}
+
+.satka-cabinet-wheel-stage {
+  position: relative;
+  width: min(360px, 92vw);
+  height: min(360px, 92vw);
+  margin: 0 auto 0.85rem;
+}
+
+.satka-cabinet-wheel-glow {
+  position: absolute;
+  inset: -6%;
+  border-radius: 50%;
+  background: radial-gradient(circle, color-mix(in srgb, var(--satka-wheel-accent) 28%, transparent) 0%, transparent 68%);
+  filter: blur(22px);
+  animation: satkaWheelGlowPulse 3s ease-in-out infinite;
+}
+
+.satka-cabinet-wheel-rotor {
+  position: absolute;
+  inset: 4%;
+  transform: rotate(0deg);
+  transition: transform 4.8s cubic-bezier(0.2, 0.85, 0.22, 1);
+  will-change: transform;
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
+}
+
+.satka-wheel-spinning .satka-cabinet-wheel-rotor {
+  transition-timing-function: cubic-bezier(0.12, 0.9, 0.18, 1);
+}
+
+.satka-cabinet-wheel-disc {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  filter: drop-shadow(0 18px 40px rgba(0, 0, 0, 0.45));
+}
+
+.satka-cabinet-wheel-disc.satka-wheel-disc-live {
+  animation: satkaWheelIdle 14s ease-in-out infinite;
+}
+
+.satka-wheel-spinning .satka-cabinet-wheel-disc {
+  animation: none;
+}
+
+.satka-wheel-svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.satka-wheel-outer-ring {
+  animation: satkaWheelRingSpin 12s linear infinite reverse;
+  stroke-dasharray: 6 10;
+}
+
+.satka-wheel-seg-label {
+  font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  letter-spacing: 0.01em;
+}
+
+.satka-wheel-seg-icon {
+  pointer-events: none;
+}
+
+.satka-wheel-seg.is-winner {
+  filter: url(#satkaWheelGlow);
+  stroke: var(--satka-wheel-accent) !important;
+  stroke-width: 2.5 !important;
+  animation: satkaWheelWinPulse 1.2s ease-in-out 3;
+}
+
+.satka-cabinet-wheel-pointer {
+  position: absolute;
+  top: 0.5%;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 22px;
+  height: 28px;
+  z-index: 6;
+  background: linear-gradient(180deg, var(--satka-wheel-accent) 0%, color-mix(in srgb, var(--satka-wheel-accent) 70%, #888) 100%);
+  clip-path: polygon(50% 100%, 0 0, 100% 0);
+  filter: drop-shadow(0 0 10px color-mix(in srgb, var(--satka-wheel-accent) 80%, transparent));
+  animation: satkaPointerBob 2s ease-in-out infinite;
+}
+
+.satka-wheel-spinning .satka-cabinet-wheel-pointer {
+  animation: satkaPointerTick 0.35s ease-in-out infinite;
+}
+
+.satka-cabinet-wheel-hub {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 20%;
+  height: 20%;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: var(--satka-wheel-hub);
+  border: 2px solid color-mix(in srgb, var(--satka-wheel-accent) 65%, transparent);
+  box-shadow:
+    0 0 28px color-mix(in srgb, var(--satka-wheel-accent) 35%, transparent),
+    inset 0 0 12px color-mix(in srgb, var(--satka-wheel-accent) 8%, transparent);
+  display: grid;
+  place-items: center;
+  z-index: 7;
+  pointer-events: none;
+}
+
+.satka-cabinet-wheel-hub img {
+  width: 56%;
+  height: 56%;
+}
+
+.satka-cabinet-wheel-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  justify-content: center;
+  margin: 0 0 1rem;
+  max-height: 5rem;
+  overflow: auto;
+  padding: 0 0.25rem;
+}
+
+.satka-wheel-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.68rem;
+  padding: 0.3rem 0.55rem;
+  border-radius: 999px;
+  border: 1px solid var(--satka-wheel-border);
+  color: var(--satka-wheel-muted);
+  background: color-mix(in srgb, var(--satka-bg, #000) 45%, transparent);
+  transition: border-color 0.25s ease, box-shadow 0.25s ease, color 0.25s ease;
+}
+.satka-wheel-legend-icon svg {
+  width: 0.85em;
+  height: 0.85em;
+}
+.satka-wheel-legend-text {
+  max-width: 9rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.satka-wheel-legend-item.is-winner {
+  border-color: var(--satka-wheel-accent);
+  color: var(--satka-wheel-text);
+  box-shadow: 0 0 16px color-mix(in srgb, var(--satka-wheel-accent) 35%, transparent);
+}
+
+.satka-cabinet-wheel-actions {
+  position: relative;
+  display: flex;
+  justify-content: center;
+}
+
+.satka-cabinet-wheel-btn {
+  position: relative;
+  overflow: hidden;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 11rem;
+  padding: 0.78rem 1.5rem;
+  border-radius: 999px;
+  font-size: 0.92rem;
+  font-weight: 800;
+  border: 2px solid var(--satka-wheel-accent);
+  cursor: pointer;
+  color: var(--satka-wheel-accent);
+  background: color-mix(in srgb, var(--satka-bg, #050505) 90%, transparent);
+  box-shadow: 0 0 32px color-mix(in srgb, var(--satka-wheel-accent) 22%, transparent);
+  transition: transform 0.2s ease, box-shadow 0.25s ease, opacity 0.2s;
+}
+
+.satka-cabinet-wheel-btn.is-ready {
+  animation: satkaWheelBtnPulse 2.2s ease-in-out infinite;
+}
+
+.satka-wheel-btn-shine {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    105deg,
+    transparent 35%,
+    color-mix(in srgb, var(--satka-wheel-accent) 35%, transparent) 50%,
+    transparent 65%
+  );
+  transform: translateX(-120%);
+  animation: satkaWheelBtnShine 3s ease-in-out infinite;
+}
+
+.satka-cabinet-wheel-btn:hover:not(:disabled) {
+  transform: translateY(-2px) scale(1.02);
+  box-shadow: 0 0 44px color-mix(in srgb, var(--satka-wheel-accent) 45%, transparent);
+}
+
+.satka-cabinet-wheel-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  animation: none;
+}
+
+.satka-cabinet-wheel-result {
+  margin: 0.9rem 0 0;
+  min-height: 1.35rem;
+  font-size: 0.86rem;
+  color: var(--satka-wheel-text);
+}
+
+.satka-wheel-win-banner {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.55rem 0.9rem;
+  border-radius: 0.75rem;
+  border: 1px solid color-mix(in srgb, var(--satka-wheel-accent) 35%, transparent);
+  background: color-mix(in srgb, var(--satka-wheel-accent) 6%, transparent);
+  box-shadow: 0 0 24px color-mix(in srgb, var(--satka-wheel-accent) 15%, transparent);
+  animation: satkaWheelWinBanner 0.55s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.satka-wheel-win-icon svg {
+  width: 1.25em;
+  height: 1.25em;
+}
+
+/* Light theme */
+html[data-satka-theme='light'] .satka-cabinet-wheel-block {
+  --satka-wheel-hub: #f0f0f0;
+}
+html[data-satka-theme='light'] .satka-cabinet-wheel-btn {
+  color: #ffffff;
+  background: #111111;
+  border-color: #111111;
+}
+html[data-satka-theme='light'] .satka-wheel-stat {
+  background: rgba(0, 0, 0, 0.04);
+}
+
+@keyframes satkaWheelBlockIn {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes satkaWheelAurora { to { transform: rotate(360deg); } }
+@keyframes satkaWheelGlowPulse {
+  0%, 100% { opacity: 0.5; transform: scale(0.97); }
+  50% { opacity: 1; transform: scale(1.04); }
+}
+@keyframes satkaWheelIdle {
+  0%, 100% { filter: drop-shadow(0 18px 40px rgba(0, 0, 0, 0.45)) brightness(1); }
+  50% { filter: drop-shadow(0 22px 48px color-mix(in srgb, var(--satka-wheel-accent) 8%, transparent)) brightness(1.06); }
+}
+@keyframes satkaWheelRingSpin { to { stroke-dashoffset: -32; } }
+@keyframes satkaPointerBob {
+  0%, 100% { transform: translateX(-50%) translateY(0); }
+  50% { transform: translateX(-50%) translateY(3px); }
+}
+@keyframes satkaPointerTick {
+  0%, 100% { transform: translateX(-50%) rotate(0deg); }
+  25% { transform: translateX(-50%) rotate(-6deg); }
+  75% { transform: translateX(-50%) rotate(6deg); }
+}
+@keyframes satkaWheelWinPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.75; }
+}
+@keyframes satkaWheelBtnPulse {
+  0%, 100% { box-shadow: 0 0 28px color-mix(in srgb, var(--satka-wheel-accent) 20%, transparent); }
+  50% { box-shadow: 0 0 40px color-mix(in srgb, var(--satka-wheel-accent) 42%, transparent); }
+}
+@keyframes satkaWheelBtnShine {
+  0%, 40%, 100% { transform: translateX(-120%); }
+  60% { transform: translateX(120%); }
+}
+@keyframes satkaWheelWinBanner {
+  from { opacity: 0; transform: scale(0.92); }
+  to { opacity: 1; transform: scale(1); }
+}
+@keyframes satkaSparkleShift { to { transform: translate3d(3%, -4%, 0); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .satka-cabinet-wheel-disc.satka-wheel-disc-live,
+  .satka-cabinet-wheel-glow,
+  .satka-wheel-sparkles,
+  .satka-wheel-aurora,
+  .satka-wheel-outer-ring,
+  .satka-cabinet-wheel-pointer,
+  .satka-cabinet-wheel-btn.is-ready,
+  .satka-wheel-btn-shine {
+    animation: none !important;
+  }
+  .satka-cabinet-wheel-rotor {
+    transition-duration: 0.01ms !important;
+  }
+}
+
+@media (max-width: 380px) {
+  .satka-wheel-seg-label { font-size: 7px !important; }
+}
+
+html.satka-in-telegram .satka-cabinet-wheel-stage,
+html.satka-mobile .satka-cabinet-wheel-stage {
+  width: min(292px, calc(100vw - 2.5rem));
+  height: min(292px, calc(100vw - 2.5rem));
+  margin-bottom: 0.75rem;
+}
+
+html.satka-in-telegram .satka-cabinet-wheel-glow {
+  inset: -4%;
+  filter: blur(14px);
+}
+
+html.satka-in-telegram .satka-cabinet-wheel-legend {
+  max-height: 5.5rem;
+  -webkit-overflow-scrolling: touch;
+}
+
+html.satka-in-telegram .satka-cabinet-wheel-block h3 {
+  font-size: 1.05rem;
+}
+
+html.satka-in-telegram #root main,
+html.satka-in-telegram #root [role='main'] {
+  overflow-x: visible;
+}

@@ -1,0 +1,347 @@
+/* Satka cabinet — cohesive theme presets + native UI overrides */
+
+/* ── Shared tokens ── */
+html[data-satka-theme='dark'] {
+  color-scheme: dark;
+  --satka-bg: #030303;
+  --satka-surface: rgba(255, 255, 255, 0.03);
+  --satka-border: rgba(255, 255, 255, 0.09);
+  --satka-text: #f5f5f5;
+  --satka-text-muted: #9a9a9a;
+  --satka-text-strong: #ffffff;
+  --satka-accent: #ffffff;
+  --satka-header-bg: rgba(8, 8, 8, 0.94);
+  --satka-nav-bg: rgba(8, 8, 8, 0.96);
+  --satka-card-bg: rgba(255, 255, 255, 0.04);
+  --satka-input-bg: rgba(255, 255, 255, 0.05);
+  --satka-hover: rgba(255, 255, 255, 0.07);
+  --satka-shadow: rgba(0, 0, 0, 0.45);
+}
+
+html[data-satka-theme='light'] {
+  color-scheme: light;
+  --satka-bg: #f4f4f6;
+  --satka-surface: #ffffff;
+  --satka-border: rgba(0, 0, 0, 0.08);
+  --satka-text: #171717;
+  --satka-text-muted: #5c5c5c;
+  --satka-text-strong: #0a0a0a;
+  --satka-accent: #111111;
+  --satka-header-bg: rgba(255, 255, 255, 0.92);
+  --satka-nav-bg: rgba(255, 255, 255, 0.96);
+  --satka-card-bg: #ffffff;
+  --satka-input-bg: #ffffff;
+  --satka-hover: rgba(0, 0, 0, 0.04);
+  --satka-shadow: rgba(0, 0, 0, 0.08);
+}
+
+html[data-satka-theme='midnight'] {
+  color-scheme: dark;
+  --satka-bg: #080d18;
+  --satka-surface: rgba(96, 165, 250, 0.05);
+  --satka-border: rgba(96, 165, 250, 0.14);
+  --satka-text: #e8eef8;
+  --satka-text-muted: #8fa3c4;
+  --satka-text-strong: #f4f8ff;
+  --satka-accent: #7cb8ff;
+  --satka-header-bg: rgba(10, 16, 30, 0.95);
+  --satka-nav-bg: rgba(10, 16, 30, 0.97);
+  --satka-card-bg: rgba(20, 30, 52, 0.72);
+  --satka-input-bg: rgba(20, 30, 52, 0.55);
+  --satka-hover: rgba(96, 165, 250, 0.1);
+  --satka-shadow: rgba(0, 0, 0, 0.4);
+}
+
+html[data-satka-theme='aurora'] {
+  color-scheme: dark;
+  --satka-bg: #061210;
+  --satka-surface: rgba(45, 212, 191, 0.05);
+  --satka-border: rgba(45, 212, 191, 0.14);
+  --satka-text: #e8faf5;
+  --satka-text-muted: #7eb8a8;
+  --satka-text-strong: #f2fffb;
+  --satka-accent: #5eead4;
+  --satka-header-bg: rgba(8, 20, 18, 0.95);
+  --satka-nav-bg: rgba(8, 20, 18, 0.97);
+  --satka-card-bg: rgba(12, 32, 28, 0.72);
+  --satka-input-bg: rgba(12, 32, 28, 0.55);
+  --satka-hover: rgba(45, 212, 191, 0.1);
+  --satka-shadow: rgba(0, 0, 0, 0.4);
+}
+
+html[data-satka-theme='rose'] {
+  color-scheme: dark;
+  --satka-bg: #10080c;
+  --satka-surface: rgba(251, 113, 133, 0.05);
+  --satka-border: rgba(251, 113, 133, 0.14);
+  --satka-text: #fceef2;
+  --satka-text-muted: #c49aa6;
+  --satka-text-strong: #fff5f7;
+  --satka-accent: #fb9eb0;
+  --satka-header-bg: rgba(20, 10, 14, 0.95);
+  --satka-nav-bg: rgba(20, 10, 14, 0.97);
+  --satka-card-bg: rgba(36, 16, 24, 0.72);
+  --satka-input-bg: rgba(36, 16, 24, 0.55);
+  --satka-hover: rgba(251, 113, 133, 0.1);
+  --satka-shadow: rgba(0, 0, 0, 0.4);
+}
+
+/* ── Base surfaces ── */
+html[data-satka-theme],
+html[data-satka-theme] body,
+html[data-satka-theme] #root {
+  background-color: var(--satka-bg) !important;
+  color: var(--satka-text);
+}
+
+html[data-satka-theme] .satka-shell .satka-bg {
+  background: radial-gradient(ellipse 130% 90% at 50% -30%, #141414 0%, var(--satka-bg) 62%);
+}
+
+html[data-satka-theme='light'] .satka-shell .satka-bg {
+  background: radial-gradient(ellipse 130% 90% at 50% -30%, #ffffff 0%, #f0f0f3 55%, var(--satka-bg) 100%);
+}
+
+html[data-satka-theme='midnight'] .satka-shell .satka-bg {
+  background: radial-gradient(ellipse 120% 85% at 50% -25%, #152238 0%, var(--satka-bg) 62%);
+}
+
+html[data-satka-theme='aurora'] .satka-shell .satka-bg {
+  background: radial-gradient(ellipse 120% 85% at 50% -25%, #0f3028 0%, var(--satka-bg) 62%);
+}
+
+html[data-satka-theme='rose'] .satka-shell .satka-bg {
+  background: radial-gradient(ellipse 120% 85% at 50% -25%, #2a121a 0%, var(--satka-bg) 62%);
+}
+
+/* ── Cabinet chrome: header + bottom nav ── */
+html[data-satka-theme] #root header,
+html[data-satka-theme] #root [class*='Header'],
+html[data-satka-theme] #root nav,
+html[data-satka-theme] #root [class*='BottomNav'],
+html[data-satka-theme] #root [class*='bottom-nav'],
+html[data-satka-theme] #root footer[class*='nav'],
+html[data-satka-theme] #root [class*='fixed'][class*='bottom-0'] {
+  background: var(--satka-header-bg) !important;
+  backdrop-filter: blur(14px) saturate(1.2) !important;
+  -webkit-backdrop-filter: blur(14px) saturate(1.2) !important;
+  border-color: var(--satka-border) !important;
+  color: var(--satka-text) !important;
+}
+
+html[data-satka-theme] #root nav,
+html[data-satka-theme] #root [class*='BottomNav'],
+html[data-satka-theme] #root [class*='bottom-nav'],
+html[data-satka-theme] #root footer[class*='nav'],
+html[data-satka-theme] #root [class*='fixed'][class*='bottom-0'] {
+  background: var(--satka-nav-bg) !important;
+  box-shadow: 0 -1px 0 var(--satka-border);
+}
+
+html[data-satka-theme] #root header *,
+html[data-satka-theme] #root nav *,
+html[data-satka-theme] #root [class*='BottomNav'] *,
+html[data-satka-theme] #root [class*='bottom-nav'] * {
+  color: inherit;
+}
+
+html[data-satka-theme] #root nav a,
+html[data-satka-theme] #root nav button,
+html[data-satka-theme] #root [class*='BottomNav'] a,
+html[data-satka-theme] #root [class*='BottomNav'] button {
+  color: var(--satka-text-muted) !important;
+}
+
+html[data-satka-theme] #root nav a[class*='text-accent'],
+html[data-satka-theme] #root nav button[class*='text-accent'],
+html[data-satka-theme] #root [class*='BottomNav'] a[class*='text-accent'],
+html[data-satka-theme] #root [class*='BottomNav'] button[class*='text-accent'],
+html[data-satka-theme] #root nav a[aria-current='page'],
+html[data-satka-theme] #root nav a.active {
+  color: var(--satka-accent) !important;
+}
+
+/* Tailwind dark-* utility overrides */
+html[data-satka-theme] #root [class*='bg-dark-950'],
+html[data-satka-theme] #root [class*='bg-dark-900'],
+html[data-satka-theme] #root [class*='bg-dark-800'] {
+  background-color: var(--satka-header-bg) !important;
+}
+
+html[data-satka-theme] #root [class*='bg-dark-'] {
+  background-color: var(--satka-card-bg) !important;
+}
+
+html[data-satka-theme] #root [class*='border-dark-'] {
+  border-color: var(--satka-border) !important;
+}
+
+html[data-satka-theme] #root [class*='text-dark-100'],
+html[data-satka-theme] #root [class*='text-dark-200'],
+html[data-satka-theme] #root h1,
+html[data-satka-theme] #root h2,
+html[data-satka-theme] #root h3 {
+  color: var(--satka-text-strong) !important;
+}
+
+html[data-satka-theme] #root [class*='text-dark-300'],
+html[data-satka-theme] #root [class*='text-dark-400'],
+html[data-satka-theme] #root [class*='text-dark-500'],
+html[data-satka-theme] #root p,
+html[data-satka-theme] #root label,
+html[data-satka-theme] #root span {
+  color: inherit;
+}
+
+html[data-satka-theme] #root [class*='text-dark-400'],
+html[data-satka-theme] #root [class*='text-dark-500'] {
+  color: var(--satka-text-muted) !important;
+}
+
+html[data-satka-theme] #root [class*='text-accent-'] {
+  color: var(--satka-accent) !important;
+}
+
+html[data-satka-theme] #root input,
+html[data-satka-theme] #root textarea,
+html[data-satka-theme] #root select {
+  background: var(--satka-input-bg) !important;
+  border-color: var(--satka-border) !important;
+  color: var(--satka-text) !important;
+}
+
+html[data-satka-theme] #root button[class*='border-dark-'],
+html[data-satka-theme] #root a[class*='border-dark-'],
+html[data-satka-theme] #root button[class*='ghost'],
+html[data-satka-theme] #root a[class*='outline'] {
+  background: var(--satka-surface) !important;
+  border-color: var(--satka-border) !important;
+  color: var(--satka-text) !important;
+}
+
+html[data-satka-theme] #root button:hover,
+html[data-satka-theme] #root a:hover,
+html[data-satka-theme] #root nav a:hover,
+html[data-satka-theme] #root nav button:hover {
+  background: var(--satka-hover) !important;
+}
+
+html[data-satka-theme] #root .bento-card,
+html[data-satka-theme] #root [class*='rounded-linear'],
+html[data-satka-theme] #root [class*='rounded-2xl'],
+html[data-satka-theme] #root [class*='rounded-xl'] {
+  border-color: var(--satka-border) !important;
+}
+
+/* Light theme specifics */
+html[data-satka-theme='light'] #root button[class*='bg-primary'],
+html[data-satka-theme='light'] #root a[class*='bg-primary'],
+html[data-satka-theme='light'] #root form button[type='submit'] {
+  background: #111 !important;
+  color: #fff !important;
+}
+
+html[data-satka-theme='light'] .satka-hero h2 {
+  background: linear-gradient(120deg, #111 0%, #444 50%, #111 100%) !important;
+  background-size: 200% auto !important;
+  -webkit-background-clip: text !important;
+  background-clip: text !important;
+  -webkit-text-fill-color: transparent !important;
+}
+
+html[data-satka-theme='light'] .satka-quick-link {
+  background: #fff;
+  border-color: var(--satka-border);
+  color: var(--satka-text);
+  box-shadow: 0 1px 2px var(--satka-shadow);
+}
+
+html[data-satka-theme='light'] .satka-quick-link.accent {
+  background: #111;
+  color: #fff;
+  border-color: #111;
+}
+
+html[data-satka-theme='light'] * {
+  scrollbar-color: rgba(0, 0, 0, 0.15) transparent;
+}
+
+/* Alt dark themes — soften harsh pure black cards */
+html[data-satka-theme='midnight'] #root header,
+html[data-satka-theme='aurora'] #root header,
+html[data-satka-theme='rose'] #root header {
+  border-bottom-color: var(--satka-border) !important;
+}
+
+/* Theme switcher */
+.satka-pref-bar {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.satka-theme-switcher {
+  position: relative;
+}
+
+.satka-theme-switcher > button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  border-radius: 0.75rem;
+  border: 1px solid var(--satka-border);
+  background: var(--satka-surface);
+  color: var(--satka-text);
+  padding: 0.45rem 0.65rem;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+
+.satka-theme-switcher > button svg {
+  width: 1rem;
+  height: 1rem;
+  opacity: 0.85;
+}
+
+.satka-theme-switcher .satka-theme-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 0.35rem);
+  z-index: 80;
+  min-width: 10.5rem;
+  padding: 0.3rem;
+  border-radius: 0.85rem;
+  border: 1px solid var(--satka-border);
+  background: var(--satka-header-bg);
+  backdrop-filter: blur(16px);
+  box-shadow: 0 12px 40px var(--satka-shadow);
+}
+
+.satka-theme-switcher .satka-theme-menu button {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 0.55rem;
+  border: none;
+  background: transparent;
+  color: var(--satka-text);
+  padding: 0.55rem 0.7rem;
+  border-radius: 0.55rem;
+  font-size: 0.84rem;
+  cursor: pointer;
+  text-align: left;
+}
+
+.satka-theme-switcher .satka-theme-menu button:hover,
+.satka-theme-switcher .satka-theme-menu button.is-active {
+  background: var(--satka-hover);
+}
+
+.satka-theme-swatch {
+  width: 0.9rem;
+  height: 0.9rem;
+  border-radius: 999px;
+  border: 1px solid var(--satka-border);
+  flex-shrink: 0;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+}

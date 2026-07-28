@@ -37,10 +37,11 @@
     });
   }
 
-  /* ── SatkaRoute: app-ready + navigation hooks ── */
+  /* ── SatkaRoute: navigation + reliable mount ticks ── */
   if (!global.SatkaRoute) {
     var routeListeners = [];
     var readyListeners = [];
+    var tickListeners = [];
     var lastPath = '';
     var observer = null;
 
@@ -59,6 +60,15 @@
       );
     }
 
+    function runTicks() {
+      if (document.hidden || !isAppReady()) return;
+      tickListeners.forEach(function (fn) {
+        try {
+          fn();
+        } catch (e) {}
+      });
+    }
+
     function flushReady() {
       if (!isAppReady()) return;
       readyListeners.forEach(function (fn) {
@@ -66,11 +76,12 @@
           fn();
         } catch (e) {}
       });
+      runTicks();
     }
 
     function scheduleReady() {
       clearTimeout(scheduleReady._t);
-      scheduleReady._t = setTimeout(flushReady, 100);
+      scheduleReady._t = setTimeout(flushReady, 80);
     }
 
     function ensureObserver() {
@@ -78,15 +89,9 @@
       var root = document.getElementById('root');
       if (!root) return;
       observer = new MutationObserver(function () {
-        if (isAppReady()) scheduleReady();
+        scheduleReady();
       });
       observer.observe(root, { childList: true, subtree: true });
-      setTimeout(function () {
-        if (observer) {
-          observer.disconnect();
-          observer = null;
-        }
-      }, 30000);
     }
 
     function whenReady(fn) {
@@ -96,15 +101,24 @@
       else ensureObserver();
     }
 
+    function onTick(fn) {
+      if (typeof fn !== 'function') return;
+      tickListeners.push(fn);
+      scheduleReady();
+      ensureObserver();
+    }
+
     function emitRoute() {
       var path = currentPath();
-      if (path === lastPath && lastPath) return;
+      var changed = path !== lastPath;
       lastPath = path;
-      routeListeners.forEach(function (fn) {
-        try {
-          fn(path);
-        } catch (e) {}
-      });
+      if (changed) {
+        routeListeners.forEach(function (fn) {
+          try {
+            fn(path);
+          } catch (e) {}
+        });
+      }
       scheduleReady();
     }
 
@@ -127,12 +141,17 @@
         emitRoute();
         onRouteChange();
       });
+      global.addEventListener('pageshow', function () {
+        lastPath = '';
+        emitRoute();
+      });
     }
 
     hookHistory();
     lastPath = currentPath();
     ensureObserver();
     scheduleReady();
+    setInterval(runTicks, 500);
 
     global.SatkaRoute = {
       onChange: function (fn) {
@@ -140,12 +159,30 @@
       },
       whenReady: whenReady,
       whenRootReady: whenReady,
+      onTick: onTick,
       path: currentPath,
       refresh: function () {
         lastPath = '';
         emitRoute();
       },
     };
+  } else if (global.SatkaRoute && !global.SatkaRoute.onTick) {
+    var legacyTicks = [];
+    global.SatkaRoute.onTick = function (fn) {
+      if (typeof fn === 'function') legacyTicks.push(fn);
+      try {
+        fn();
+      } catch (e) {}
+    };
+    setInterval(function () {
+      if (document.hidden) return;
+      legacyTicks.forEach(function (fn) {
+        try {
+          fn();
+        } catch (e) {}
+      });
+    }, 500);
+    global.SatkaRoute.onChange(onRouteChange);
   } else if (global.SatkaRoute) {
     global.SatkaRoute.onChange(onRouteChange);
   }

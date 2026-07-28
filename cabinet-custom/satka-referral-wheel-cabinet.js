@@ -529,8 +529,9 @@
   if (window.SatkaI18n) window.SatkaI18n.onChange(resetWheel);
 
   if (window.SatkaRoute) {
-    window.SatkaRoute.whenReady(boot);
+    window.SatkaRoute.onTick(boot);
     window.SatkaRoute.onChange(boot);
+    window.SatkaRoute.whenReady(boot);
   } else {
     boot();
     window.addEventListener('popstate', boot);

@@ -56,12 +56,21 @@
     return null;
   }
 
-  function injectPresets() {
-    if (!isSupportPath()) return;
-    var form = findCreateForm();
-    if (!form) return;
-    if (document.querySelector('[data-satka-presets]')) return;
+  function removePresets() {
+    document.querySelectorAll('[data-satka-presets]').forEach(function (el) {
+      el.remove();
+    });
+  }
 
+  function presetsAreValid() {
+    var wrap = document.querySelector('[data-satka-presets]');
+    var form = findCreateForm();
+    if (!wrap || !form) return false;
+    if (!wrap.isConnected || !form.subject.isConnected) return false;
+    return wrap.parentElement === form.subject.closest('form');
+  }
+
+  function buildPresets(form) {
     var wrap = document.createElement('div');
     wrap.className = 'satka-ticket-presets';
     wrap.dataset.satkaPresets = '1';
@@ -84,7 +93,23 @@
       });
       chips.appendChild(btn);
     });
-    form.subject.closest('form').insertBefore(wrap, form.subject.parentElement);
+    return wrap;
+  }
+
+  function injectPresets() {
+    if (!isSupportPath()) {
+      removePresets();
+      return;
+    }
+    var form = findCreateForm();
+    if (!form) return;
+    if (presetsAreValid()) return;
+
+    removePresets();
+    var wrap = buildPresets(form);
+    var ticketForm = form.subject.closest('form');
+    if (!ticketForm) return;
+    ticketForm.insertBefore(wrap, form.subject.parentElement);
   }
 
   function markSendButtons() {
@@ -145,21 +170,32 @@
   function update() {
     var on = isSupportPath();
     document.documentElement.classList.toggle('satka-on-support', on);
-    if (!on) return;
+    if (!on) {
+      removePresets();
+      return;
+    }
     injectPresets();
     markSendButtons();
     validateFormHint();
   }
 
+  function refreshLanguage() {
+    removePresets();
+    update();
+  }
+
   hookFetch();
   update();
-  window.addEventListener('satka-language-changed', update);
-  if (window.SatkaI18n) window.SatkaI18n.onChange(update);
+
+  window.addEventListener('satka-language-changed', refreshLanguage);
+  if (window.SatkaI18n) window.SatkaI18n.onChange(refreshLanguage);
 
   if (window.SatkaRoute) {
-    window.SatkaRoute.whenReady(update);
+    window.SatkaRoute.onTick(update);
     window.SatkaRoute.onChange(update);
+    window.SatkaRoute.whenReady(update);
   } else {
     window.addEventListener('popstate', update);
+    setInterval(update, 500);
   }
 })();

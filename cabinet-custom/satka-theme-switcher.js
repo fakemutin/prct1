@@ -128,10 +128,17 @@
 
   function mountSwitcher() {
     if (isTelegram) return;
-    if (document.querySelector('.satka-theme-switcher')) return;
     var langBtn = document.querySelector('button[aria-label="Change language"]');
     if (!langBtn || !langBtn.parentElement) return;
+
     var parent = langBtn.parentElement;
+    var existing = parent.querySelector('.satka-theme-switcher');
+    if (existing && parent.contains(existing)) return;
+
+    document.querySelectorAll('.satka-theme-switcher').forEach(function (el) {
+      el.remove();
+    });
+
     parent.classList.add('satka-header-prefs');
     parent.insertBefore(buildSwitcher(), langBtn);
     applyTheme(getTheme(), true);
@@ -159,8 +166,9 @@
   }
 
   if (window.SatkaRoute) {
-    window.SatkaRoute.whenReady(boot);
+    window.SatkaRoute.onTick(boot);
     window.SatkaRoute.onChange(boot);
+    window.SatkaRoute.whenReady(boot);
   } else {
     var tries = 0;
     var timer = setInterval(function () {

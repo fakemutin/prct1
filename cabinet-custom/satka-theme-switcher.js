@@ -20,6 +20,7 @@
     aurora: '#061210',
     rose: '#10080c',
   };
+  var applying = false;
 
   function t(key) {
     return window.SatkaI18n ? window.SatkaI18n.t(key) : key;
@@ -43,9 +44,29 @@
     } catch (e) {}
   }
 
+  function hideNativeThemeToggle() {
+    document.querySelectorAll('#root button').forEach(function (btn) {
+      if (btn.closest('.satka-theme-switcher')) return;
+      var path = btn.querySelector('svg path');
+      if (!path) return;
+      var d = path.getAttribute('d') || '';
+      if (d.indexOf('233.54,142.23') !== -1 || d.indexOf('188.9,190.34') !== -1) {
+        btn.hidden = true;
+        btn.setAttribute('aria-hidden', 'true');
+        btn.style.display = 'none';
+      }
+    });
+  }
+
   function applyTheme(id, silent) {
     var theme = THEMES.some(function (x) { return x.id === id; }) ? id : 'dark';
     var html = document.documentElement;
+    var already =
+      html.getAttribute('data-satka-theme') === theme &&
+      html.classList.contains(theme === 'light' ? 'light' : 'dark');
+    if (already && silent) return;
+
+    applying = true;
     html.setAttribute('data-satka-theme', theme);
     html.classList.toggle('dark', theme !== 'light');
     html.classList.toggle('light', theme === 'light');
@@ -62,6 +83,7 @@
     } catch (e) {}
 
     syncTelegramChrome(theme);
+    hideNativeThemeToggle();
 
     if (!silent) {
       try {
@@ -74,18 +96,22 @@
     });
     var current = document.querySelector('.satka-theme-switcher [data-current-theme]');
     if (current) current.textContent = t('theme.' + theme);
+    applying = false;
   }
 
   function enforceTheme() {
+    if (applying) return;
     applyTheme(getTheme(), true);
   }
 
   function hookNavigation() {
+    var navTimer = null;
     function onNav() {
-      enforceTheme();
-      setTimeout(enforceTheme, 50);
-      setTimeout(enforceTheme, 250);
-      setTimeout(enforceTheme, 800);
+      clearTimeout(navTimer);
+      navTimer = setTimeout(function () {
+        enforceTheme();
+        hideNativeThemeToggle();
+      }, 120);
     }
     window.addEventListener('popstate', onNav);
     var _push = history.pushState;
@@ -100,19 +126,6 @@
       onNav();
       return r;
     };
-  }
-
-  function watchThemeDrift() {
-    var expected = getTheme();
-    var obs = new MutationObserver(function () {
-      var cur = document.documentElement.getAttribute('data-satka-theme');
-      var isLight = document.documentElement.classList.contains('light');
-      var isDark = document.documentElement.classList.contains('dark');
-      if (cur !== expected || (expected === 'light' && isDark) || (expected !== 'light' && !isDark && expected === 'dark')) {
-        enforceTheme();
-      }
-    });
-    obs.observe(document.documentElement, { attributes: true, attributeFilter: ['class', 'data-satka-theme'] });
   }
 
   function buildSwitcher() {
@@ -149,6 +162,7 @@
   }
 
   function mountNearLanguage() {
+    hideNativeThemeToggle();
     if (document.querySelector('.satka-theme-switcher')) return true;
     var langBtn = document.querySelector('button[aria-label="Change language"]');
     if (!langBtn) return false;
@@ -168,16 +182,13 @@
     return true;
   }
 
-  enforceTheme();
+  applyTheme(getTheme(), true);
   hookNavigation();
-  watchThemeDrift();
+  hideNativeThemeToggle();
 
-  if (document.documentElement.classList.contains('satka-in-telegram')) {
-    setInterval(enforceTheme, 1200);
-    document.addEventListener('visibilitychange', function () {
-      if (!document.hidden) enforceTheme();
-    });
-  }
+  document.addEventListener('visibilitychange', function () {
+    if (!document.hidden) enforceTheme();
+  });
 
   if (window.SatkaI18n) {
     window.SatkaI18n.onChange(function () {
@@ -190,8 +201,18 @@
   var tries = 0;
   var timer = setInterval(function () {
     tries += 1;
-    if (mountNearLanguage() || tries > 120) clearInterval(timer);
+    hideNativeThemeToggle();
+    if (mountNearLanguage() || tries > 80) clearInterval(timer);
   }, 500);
+
+  var root = document.getElementById('root');
+  if (root && 'MutationObserver' in window) {
+    var hideTimer = null;
+    new MutationObserver(function () {
+      clearTimeout(hideTimer);
+      hideTimer = setTimeout(hideNativeThemeToggle, 200);
+    }).observe(root, { childList: true, subtree: true });
+  }
 
   window.SatkaTheme = { apply: applyTheme, get: getTheme, enforce: enforceTheme };
 })();

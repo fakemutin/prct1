@@ -86,17 +86,42 @@
     });
   }
 
-  function shortLabel(seg) {
-    var label = (seg.short || seg.title || '').trim();
-    if (label.length <= 8) return label;
-    return label.slice(0, 7) + '…';
+  function compactLabel(seg) {
+    var text = (seg.short || seg.title || '').trim();
+    var m;
+    m = text.match(/(\+\s*)?(\d+)\s*₽/);
+    if (m) return (m[1] ? '+' : '') + m[2] + '₽';
+    m = text.match(/(\d+)\s*%/);
+    if (m) return m[1] + '%';
+    m = text.match(/(\d+)\s*(дн|д\.|day)/i);
+    if (m) return m[1] + 'д';
+    m = text.match(/(\d+)\s*gb/i);
+    if (m) return m[1] + ' GB';
+    if (/скидк/i.test(text)) return 'Скидка';
+    if (/баланс|рубл/i.test(text)) return 'Баланс';
+    if (/подписк/i.test(text)) return 'Дни';
+    if (text.length <= 7) return text;
+    return text.split(/\s+/)[0].slice(0, 6);
+  }
+
+  function iconPaths(name, color) {
+    var s = ' stroke="' + color + '" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"';
+    var map = {
+      balance: '<circle cx="12" cy="12" r="9"' + s + '/><path d="M12 7v10M9 10h4.5a2 2 0 1 0 0-4H10a2 2 0 0 0 0 4h4.5a2 2 0 1 1 0 4H9"' + s + '/>',
+      days: '<rect x="3" y="5" width="18" height="16" rx="2"' + s + '/><path d="M8 3v4M16 3v4M3 10h18"' + s + '/>',
+      gift: '<rect x="3" y="8" width="18" height="13" rx="1"' + s + '/><path d="M12 8v13M3 12h18"' + s + '/>',
+      percent: '<circle cx="7.5" cy="7.5" r="3.5"' + s + '/><circle cx="16.5" cy="16.5" r="3.5"' + s + '/><path d="M19 5 5 19"' + s + '/>',
+      traffic: '<path d="M12 3v12M8 11l4 4 4-4M4 21h16"' + s + '/>',
+      star: '<polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"' + s + '/>',
+    };
+    return map[name] || map.star;
   }
 
   function labelFontSize(label, n) {
     var len = label.length;
-    if (n > 10) return len > 7 ? 9 : 10;
-    if (n > 8) return len > 7 ? 9.5 : 10.5;
-    return len > 7 ? 10 : 11.5;
+    if (n > 10) return len > 6 ? 8.5 : 9.5;
+    if (n > 8) return len > 6 ? 9 : 10;
+    return len > 6 ? 9.5 : 11;
   }
 
   function polar(cx, cy, r, deg) {
@@ -105,9 +130,7 @@
   }
 
   function segIconSvg(seg, dark) {
-    var color = dark ? '#ffffff' : '#0a0a0a';
-    var raw = ICONS[segIconName(seg)];
-    return raw.replace(/currentColor/g, color);
+    return iconPaths(segIconName(seg), dark ? '#ffffff' : '#111111');
   }
 
   function buildSvgWheel(segments) {
@@ -116,7 +139,7 @@
     var cx = size / 2;
     var cy = size / 2;
     var outer = size * 0.48;
-    var inner = size * 0.14;
+    var inner = size * 0.15;
     var step = 360 / n;
     var start = -90;
     var parts = [];
@@ -129,40 +152,35 @@
       var p1 = polar(cx, cy, outer, a1);
       var large = step > 180 ? 1 : 0;
       var dark = i % 2 === 0;
-      var fill = dark ? '#111111' : '#f7f7f7';
-      var stroke = dark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.08)';
+      var fill = dark ? '#101010' : '#fafafa';
+      var stroke = dark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)';
       var d =
         'M ' + cx + ' ' + cy +
         ' L ' + p0.x + ' ' + p0.y +
         ' A ' + outer + ' ' + outer + ' 0 ' + large + ' 1 ' + p1.x + ' ' + p1.y + ' Z';
       parts.push(
         '<path class="satka-wheel-seg" data-seg-index="' + i + '" d="' + d +
-        '" fill="' + fill + '" stroke="' + stroke + '" stroke-width="1.2"/>'
+        '" fill="' + fill + '" stroke="' + stroke + '" stroke-width="1"/>'
       );
 
       var mid = a0 + step / 2;
-      var iconPos = polar(cx, cy, outer * 0.58, mid);
-      var labelPos = polar(cx, cy, outer * 0.8, mid);
-      var label = shortLabel(segments[i]);
+      var lp = polar(cx, cy, outer * 0.72, mid);
+      var label = compactLabel(segments[i]);
       var fs = labelFontSize(label, n);
       var pillBg = dark ? '#ffffff' : '#111111';
       var pillText = dark ? '#111111' : '#ffffff';
       var iconColor = dark ? '#ffffff' : '#111111';
-      var pillW = Math.min(Math.max(label.length * 6.2 + 10, 28), 56);
-      var pillH = 15;
-      var icInner = segIconSvg(segments[i], dark)
-        .replace(/currentColor/g, iconColor)
-        .replace(/<svg[^>]*>/, '')
-        .replace(/<\/svg>/, '');
+      var pillW = Math.min(Math.max(label.length * 6.8 + 12, 34), 62);
+      var rot = mid + 90;
 
       labels.push(
-        '<g class="satka-wheel-seg-content" transform="rotate(' + (mid + 90) + ' ' + labelPos.x + ' ' + labelPos.y + ')">' +
-        '<g class="satka-wheel-seg-icon" transform="translate(' + (iconPos.x - 13) + ',' + (iconPos.y - 28) + ') scale(1.15)">' + icInner + '</g>' +
-        '<rect class="satka-wheel-seg-pill" x="' + (labelPos.x - pillW / 2) + '" y="' + (labelPos.y - 4) +
-        '" width="' + pillW + '" height="' + pillH + '" rx="5" fill="' + pillBg + '" opacity="0.96"/>' +
-        '<text class="satka-wheel-seg-label" x="' + labelPos.x + '" y="' + (labelPos.y + 7) +
-        '" text-anchor="middle" fill="' + pillText + '" font-size="' + fs +
-        '" font-weight="800" font-family="Inter,system-ui,sans-serif">' +
+        '<g class="satka-wheel-seg-content" transform="translate(' + lp.x + ',' + lp.y + ') rotate(' + rot + ')">' +
+        '<g transform="translate(-12,-28)"><svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true">' +
+        iconPaths(segIconName(segments[i]), iconColor) +
+        '</svg></g>' +
+        '<rect x="' + (-pillW / 2) + '" y="-2" width="' + pillW + '" height="15" rx="5" fill="' + pillBg + '"/>' +
+        '<text class="satka-wheel-seg-label" x="0" y="9" text-anchor="middle" fill="' + pillText +
+        '" font-size="' + fs + '" font-weight="800" font-family="Inter,system-ui,sans-serif">' +
         escapeXml(label) + '</text></g>'
       );
     }
@@ -170,10 +188,10 @@
     return (
       '<svg class="satka-wheel-svg" viewBox="0 0 ' + size + ' ' + size + '" role="img" aria-label="' + t('wheel.heading') + '">' +
       '<defs><filter id="satkaWheelGlow"><feGaussianBlur stdDeviation="2" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>' +
-      '<circle cx="' + cx + '" cy="' + cy + '" r="' + (outer + 3) +
-      '" fill="none" class="satka-wheel-outer-ring" stroke="rgba(255,255,255,0.2)" stroke-width="2.5"/>' +
+      '<circle cx="' + cx + '" cy="' + cy + '" r="' + (outer + 2) +
+      '" fill="none" stroke="rgba(255,255,255,0.15)" stroke-width="2"/>' +
       parts.join('') +
-      '<circle cx="' + cx + '" cy="' + cy + '" r="' + inner + '" fill="var(--satka-wheel-hub, #0a0a0a)" stroke="rgba(255,255,255,0.5)" stroke-width="2.5"/>' +
+      '<circle cx="' + cx + '" cy="' + cy + '" r="' + inner + '" fill="#0a0a0a" stroke="rgba(255,255,255,0.45)" stroke-width="2"/>' +
       labels.join('') + '</svg>'
     );
   }
@@ -194,7 +212,6 @@
       '<p class="satka-cabinet-wheel-lead">' + t('wheel.lead') + '</p>' +
       '<div class="satka-cabinet-wheel-stats" data-wheel-stats></div>' +
       '<div class="satka-cabinet-wheel-stage">' +
-      '<div class="satka-cabinet-wheel-glow"></div>' +
       '<div class="satka-cabinet-wheel-pointer" aria-hidden="true"></div>' +
       '<div class="satka-cabinet-wheel-rotor">' +
       '<div class="satka-cabinet-wheel-disc"></div>' +
@@ -288,23 +305,23 @@
     var fromDeg = rotation;
     rotation += extra;
     var toDeg = rotation;
-
-    var useJsAnim =
-      isTelegramMiniApp() ||
-      document.documentElement.classList.contains('satka-low-perf') ||
-      document.documentElement.classList.contains('satka-mobile');
+    var duration = SPIN_MS / 1000;
 
     function done() {
       highlightWinner(wrap, idx);
     }
 
+    var useJsAnim = document.documentElement.classList.contains('satka-low-perf') &&
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
     if (useJsAnim) {
       return animateRotationJs(rotor, fromDeg, toDeg, SPIN_MS).then(done);
     }
 
-    rotor.style.transition = 'transform 4.8s cubic-bezier(0.2, 0.85, 0.22, 1)';
+    rotor.style.transition = 'none';
     applyRotorDeg(rotor, fromDeg);
     void rotor.offsetWidth;
+    rotor.style.transition = 'transform ' + duration + 's cubic-bezier(0.17, 0.67, 0.12, 0.99)';
     applyRotorDeg(rotor, toDeg);
 
     return new Promise(function (resolve) {
@@ -321,7 +338,7 @@
         if (e.target === rotor && e.propertyName === 'transform') finish();
       }
       rotor.addEventListener('transitionend', onEnd);
-      var fallback = setTimeout(finish, SPIN_MS + 200);
+      var fallback = setTimeout(finish, SPIN_MS + 300);
     });
   }
 

@@ -143,10 +143,9 @@ html.satka-low-perf .satka-orb {
   animation: none !important;
 }
 
-/* Wheel spin must stay smooth in Telegram mini app */
-html.satka-low-perf .satka-cabinet-wheel-rotor,
-html.satka-in-telegram .satka-cabinet-wheel-rotor {
-  transition-duration: 0ms !important;
+/* Wheel spin — keep smooth in Telegram mini app */
+html.satka-low-perf .satka-cabinet-wheel-rotor {
+  transition-duration: 0.01ms !important;
 }
 
 html.satka-in-telegram .satka-cabinet-wheel-block {

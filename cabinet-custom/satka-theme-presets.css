@@ -337,6 +337,14 @@ html[data-satka-theme='rose'] #root header {
   background: var(--satka-hover);
 }
 
+/* Hide built-in moon/dark toggle — we have Satka theme switcher */
+#root button:has(svg path[d*='233.54,142.23']),
+#root button:has(svg path[d*='188.9,190.34']) {
+  display: none !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+
 .satka-theme-swatch {
   width: 0.9rem;
   height: 0.9rem;

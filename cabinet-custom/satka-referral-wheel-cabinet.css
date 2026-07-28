@@ -99,30 +99,27 @@
   width: min(340px, 90vw);
   height: min(340px, 90vw);
   margin: 0 auto 0.75rem;
-}
-
-.satka-cabinet-wheel-glow {
-  position: absolute;
-  inset: 2%;
+  overflow: hidden;
   border-radius: 50%;
-  background: radial-gradient(circle, color-mix(in srgb, var(--satka-wheel-accent) 18%, transparent) 0%, transparent 70%);
-  filter: blur(18px);
-  animation: satkaWheelGlowPulse 4s ease-in-out infinite;
-  pointer-events: none;
 }
 
 .satka-cabinet-wheel-rotor {
   position: absolute;
   inset: 3%;
   transform: rotate(0deg);
-  transition: transform 4.8s cubic-bezier(0.2, 0.85, 0.22, 1);
+  transition: transform 4.8s cubic-bezier(0.17, 0.67, 0.12, 0.99);
   will-change: transform;
   -webkit-backface-visibility: hidden;
   backface-visibility: hidden;
 }
 
+html.satka-in-telegram .satka-cabinet-wheel-rotor,
+html.satka-mobile .satka-cabinet-wheel-rotor {
+  transition: transform 4.8s cubic-bezier(0.17, 0.67, 0.12, 0.99) !important;
+}
+
 .satka-wheel-spinning .satka-cabinet-wheel-rotor {
-  transition-timing-function: cubic-bezier(0.12, 0.9, 0.18, 1);
+  transition-timing-function: cubic-bezier(0.12, 0.9, 0.18, 1) !important;
 }
 
 .satka-cabinet-wheel-disc {
@@ -138,14 +135,14 @@
   display: block;
 }
 
-.satka-wheel-outer-ring {
-  opacity: 0.85;
-}
-
 .satka-wheel-seg-label {
   font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  letter-spacing: 0.01em;
+  letter-spacing: 0.02em;
   pointer-events: none;
+}
+
+.satka-wheel-seg-content svg {
+  display: block;
 }
 
 .satka-wheel-seg-icon {
@@ -340,10 +337,6 @@ html[data-satka-theme='light'] .satka-wheel-stat {
   from { opacity: 0; transform: translateY(10px); }
   to { opacity: 1; transform: translateY(0); }
 }
-@keyframes satkaWheelGlowPulse {
-  0%, 100% { opacity: 0.45; transform: scale(0.98); }
-  50% { opacity: 0.85; transform: scale(1.02); }
-}
 @keyframes satkaPointerBob {
   0%, 100% { transform: translateX(-50%) translateY(0); }
   50% { transform: translateX(-50%) translateY(2px); }
@@ -371,7 +364,6 @@ html[data-satka-theme='light'] .satka-wheel-stat {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .satka-cabinet-wheel-glow,
   .satka-cabinet-wheel-pointer,
   .satka-cabinet-wheel-btn.is-ready,
   .satka-wheel-btn-shine {

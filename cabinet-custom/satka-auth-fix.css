@@ -1,5 +1,33 @@
-/* No email verification — hide register hints on login page */
+/* Email registration without verification code */
 
 html.satka-no-email-verify.satka-on-login p.text-center.text-xs.text-dark-500 {
   display: none !important;
+}
+
+html.satka-no-email-verify.satka-on-login .card.text-center {
+  display: none !important;
+}
+
+html.satka-no-email-verify.satka-register-pending #root {
+  visibility: hidden;
+}
+
+html.satka-no-email-verify.satka-register-pending body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 99999;
+  background: var(--bg-primary, #0a0a0f);
+}
+
+html.satka-no-email-verify.satka-register-pending body::after {
+  content: 'Вход в кабинет…';
+  position: fixed;
+  inset: 0;
+  z-index: 100000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary, #a1a1aa);
+  font-size: 0.95rem;
 }

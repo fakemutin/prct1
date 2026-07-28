@@ -20,7 +20,10 @@
     aurora: '#061210',
     rose: '#10080c',
   };
-  var applying = false;
+  var mounted = false;
+  var isTelegram =
+    document.documentElement.classList.contains('satka-in-telegram') ||
+    !!window.TelegramWebviewProxy;
 
   function t(key) {
     return window.SatkaI18n ? window.SatkaI18n.t(key) : key;
@@ -44,45 +47,13 @@
     } catch (e) {}
   }
 
-  function hideNativeThemeToggle() {
-    var langBtn = document.querySelector('button[aria-label="Change language"]');
-    if (langBtn && langBtn.parentElement) {
-      langBtn.parentElement.querySelectorAll('button').forEach(function (btn) {
-        if (btn === langBtn || btn.closest('.satka-theme-switcher')) return;
-        var label = (btn.getAttribute('aria-label') || '').toLowerCase();
-        var onlyIcon = btn.querySelector('svg') && !(btn.textContent || '').trim();
-        if (onlyIcon || label.indexOf('theme') >= 0 || label.indexOf('тема') >= 0 || label.indexOf('mode') >= 0) {
-          btn.remove();
-          return;
-        }
-      });
-    }
-    document.querySelectorAll('#root button').forEach(function (btn) {
-      if (btn.closest('.satka-theme-switcher')) return;
-      var path = btn.querySelector('svg path');
-      if (!path) return;
-      var d = path.getAttribute('d') || '';
-      if (
-        d.indexOf('233.54,142.23') !== -1 ||
-        d.indexOf('188.9,190.34') !== -1 ||
-        d.indexOf('M233.54') !== -1 ||
-        d.indexOf('M128,56a72') !== -1 ||
-        d.indexOf('M128,40') !== -1
-      ) {
-        btn.remove();
-      }
-    });
-  }
-
   function applyTheme(id, silent) {
-    var theme = THEMES.some(function (x) { return x.id === id; }) ? id : 'dark';
+    var theme = THEMES.some(function (x) {
+      return x.id === id;
+    })
+      ? id
+      : 'dark';
     var html = document.documentElement;
-    var already =
-      html.getAttribute('data-satka-theme') === theme &&
-      html.classList.contains(theme === 'light' ? 'light' : 'dark');
-    if (already && silent) return;
-
-    applying = true;
     html.setAttribute('data-satka-theme', theme);
     html.classList.toggle('dark', theme !== 'light');
     html.classList.toggle('light', theme === 'light');
@@ -99,11 +70,12 @@
     } catch (e) {}
 
     syncTelegramChrome(theme);
-    hideNativeThemeToggle();
 
     if (!silent) {
       try {
-        window.dispatchEvent(new CustomEvent('themeChanged', { detail: theme === 'light' ? 'light' : 'dark' }));
+        window.dispatchEvent(
+          new CustomEvent('themeChanged', { detail: theme === 'light' ? 'light' : 'dark' }),
+        );
       } catch (e2) {}
     }
 
@@ -112,45 +84,19 @@
     });
     var current = document.querySelector('.satka-theme-switcher [data-current-theme]');
     if (current) current.textContent = t('theme.' + theme);
-    applying = false;
-  }
-
-  function enforceTheme() {
-    if (applying) return;
-    applyTheme(getTheme(), true);
-  }
-
-  function hookNavigation() {
-    var navTimer = null;
-    function onNav() {
-      clearTimeout(navTimer);
-      navTimer = setTimeout(function () {
-        enforceTheme();
-        hideNativeThemeToggle();
-      }, 120);
-    }
-    window.addEventListener('popstate', onNav);
-    var _push = history.pushState;
-    var _replace = history.replaceState;
-    history.pushState = function () {
-      var r = _push.apply(history, arguments);
-      onNav();
-      return r;
-    };
-    history.replaceState = function () {
-      var r = _replace.apply(history, arguments);
-      onNav();
-      return r;
-    };
   }
 
   function buildSwitcher() {
     var wrap = document.createElement('div');
     wrap.className = 'satka-theme-switcher';
     wrap.innerHTML =
-      '<button type="button" aria-label="' + t('theme.label') + '">' +
+      '<button type="button" aria-label="' +
+      t('theme.label') +
+      '">' +
       PALETTE_ICON +
-      '<span data-current-theme>' + t('theme.' + getTheme()) + '</span></button>' +
+      '<span data-current-theme>' +
+      t('theme.' + getTheme()) +
+      '</span></button>' +
       '<div class="satka-theme-menu" hidden></div>';
     var menu = wrap.querySelector('.satka-theme-menu');
     THEMES.forEach(function (item) {
@@ -158,8 +104,12 @@
       btn.type = 'button';
       btn.dataset.theme = item.id;
       btn.innerHTML =
-        '<span class="satka-theme-swatch" style="background:' + item.swatch + '"></span>' +
-        '<span>' + t('theme.' + item.id) + '</span>';
+        '<span class="satka-theme-swatch" style="background:' +
+        item.swatch +
+        '"></span>' +
+        '<span>' +
+        t('theme.' + item.id) +
+        '</span>';
       btn.addEventListener('click', function () {
         applyTheme(item.id);
         menu.hidden = true;
@@ -177,58 +127,56 @@
     return wrap;
   }
 
-  function mountNearLanguage() {
-    hideNativeThemeToggle();
-    if (document.querySelector('.satka-theme-switcher')) return true;
-    var langBtn = document.querySelector('button[aria-label="Change language"]');
-    if (!langBtn) return false;
-    var parent = langBtn.parentElement;
-    if (!parent) return false;
-    var bar = parent.closest('.satka-pref-bar');
-    if (!bar) {
-      bar = document.createElement('div');
-      bar.className = 'satka-pref-bar';
-      parent.parentNode.insertBefore(bar, parent);
-      bar.appendChild(buildSwitcher());
-      bar.appendChild(parent);
-    } else if (!bar.querySelector('.satka-theme-switcher')) {
-      bar.insertBefore(buildSwitcher(), bar.firstChild);
+  function mountSwitcher() {
+    if (isTelegram || mounted) return;
+    if (document.querySelector('.satka-theme-switcher')) {
+      mounted = true;
+      return;
     }
-    enforceTheme();
-    return true;
+    var langBtn = document.querySelector('button[aria-label="Change language"]');
+    if (!langBtn || !langBtn.parentElement) return;
+    langBtn.parentElement.insertBefore(buildSwitcher(), langBtn);
+    mounted = true;
+    applyTheme(getTheme(), true);
+  }
+
+  function remountForLanguage() {
+    var sw = document.querySelector('.satka-theme-switcher');
+    if (sw) sw.remove();
+    mounted = false;
+    mountSwitcher();
   }
 
   applyTheme(getTheme(), true);
-  hookNavigation();
-  hideNativeThemeToggle();
 
   document.addEventListener('visibilitychange', function () {
-    if (!document.hidden) enforceTheme();
+    if (!document.hidden) applyTheme(getTheme(), true);
   });
 
   if (window.SatkaI18n) {
-    window.SatkaI18n.onChange(function () {
-      var sw = document.querySelector('.satka-theme-switcher');
-      if (sw) sw.remove();
-      mountNearLanguage();
+    window.SatkaI18n.onChange(remountForLanguage);
+  }
+
+  if (window.SatkaRoute) {
+    window.SatkaRoute.whenRootReady(mountSwitcher);
+    window.SatkaRoute.onChange(function () {
+      applyTheme(getTheme(), true);
+      mountSwitcher();
     });
+  } else {
+    var tries = 0;
+    var timer = setInterval(function () {
+      tries += 1;
+      mountSwitcher();
+      if (mounted || tries > 40) clearInterval(timer);
+    }, 400);
   }
 
-  var tries = 0;
-  var timer = setInterval(function () {
-    tries += 1;
-    hideNativeThemeToggle();
-    if (mountNearLanguage() || tries > 80) clearInterval(timer);
-  }, 500);
-
-  var root = document.getElementById('root');
-  if (root && 'MutationObserver' in window) {
-    var hideTimer = null;
-    new MutationObserver(function () {
-      clearTimeout(hideTimer);
-      hideTimer = setTimeout(hideNativeThemeToggle, 200);
-    }).observe(root, { childList: true, subtree: true });
-  }
-
-  window.SatkaTheme = { apply: applyTheme, get: getTheme, enforce: enforceTheme };
+  window.SatkaTheme = {
+    apply: applyTheme,
+    get: getTheme,
+    enforce: function () {
+      applyTheme(getTheme(), true);
+    },
+  };
 })();

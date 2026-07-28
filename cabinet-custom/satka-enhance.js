@@ -33,7 +33,7 @@
   }
 
   function buildQuickLinks() {
-    var wrap = el('div', 'satka-quick-links satka-reveal');
+    var wrap = el('div', 'satka-quick-links satka-reveal visible');
     links().forEach(function (item) {
       var a = el('a', 'satka-quick-link' + (item.accent ? ' accent' : ''));
       a.href = item.href;
@@ -48,7 +48,7 @@
   function buildHomeBlock() {
     var home = el('section', 'satka-home');
     home.setAttribute('data-satka-home', '1');
-    var hero = el('div', 'satka-hero satka-reveal');
+    var hero = el('div', 'satka-hero satka-reveal visible');
     hero.innerHTML =
       '<p class="satka-tag">' + t('home.tag') + '</p>' +
       '<h2>' + t('home.title') + '</h2>' +
@@ -87,20 +87,17 @@
   }
 
   function watchApp() {
-    if (tryInject()) return;
-    var root = document.getElementById('root');
-    if (!root) return;
-    var obs = new MutationObserver(function () {
-      if (tryInject()) obs.disconnect();
-    });
-    obs.observe(root, { childList: true, subtree: true });
-    setTimeout(function () { obs.disconnect(); }, 8000);
+    tryInject();
   }
 
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', watchApp);
-  else watchApp();
-
-  window.addEventListener('popstate', resetInject);
+  if (window.SatkaRoute) {
+    window.SatkaRoute.whenRootReady(watchApp);
+    window.SatkaRoute.onChange(resetInject);
+  } else {
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', watchApp);
+    else watchApp();
+    window.addEventListener('popstate', resetInject);
+  }
   window.addEventListener('satka-language-changed', resetInject);
   if (window.SatkaI18n) window.SatkaI18n.onChange(resetInject);
 })();

@@ -117,9 +117,9 @@
   }
 
   function labelFontSize(label, n) {
-    if (n > 10) return label.length > 5 ? 8 : 9;
-    if (n > 8) return label.length > 5 ? 8.5 : 9.5;
-    return label.length > 6 ? 9 : 10.5;
+    if (n > 10) return label.length > 5 ? 9 : 10;
+    if (n > 8) return label.length > 5 ? 9.5 : 11;
+    return label.length > 6 ? 10 : 12;
   }
 
   function polar(cx, cy, r, deg) {
@@ -131,17 +131,21 @@
     if (typeof data.segment_index === 'number' && data.segment_index >= 0) {
       return Math.min(data.segment_index, segmentsCache.length - 1);
     }
-    var id = data.id || data.prize_id || (data.prize && data.prize.id);
+    var prize = data.prize || data;
+    var id = data.id || data.prize_id || prize.id;
     if (id != null) {
       for (var i = 0; i < segmentsCache.length; i++) {
         if (String(segmentsCache[i].id) === String(id)) return i;
       }
     }
-    if (data.title || data.short) {
-      var title = String(data.title || data.short);
+    var title = String(data.title || data.short || prize.title || prize.short || '');
+    if (title) {
       for (var j = 0; j < segmentsCache.length; j++) {
         var seg = segmentsCache[j];
         if (seg.title === title || seg.short === title) return j;
+        if (title && (String(seg.title || '').indexOf(title) >= 0 || title.indexOf(String(seg.title || '')) >= 0)) {
+          return j;
+        }
       }
     }
     return 0;
@@ -208,7 +212,7 @@
         '" fill="var(--satka-wheel-rim, #fff)" opacity="0.9"/>');
 
       var mid = a0 + step / 2;
-      var lp = polar(cx, cy, (outer + inner) / 2 + 6, mid);
+      var lp = polar(cx, cy, (outer + inner) / 2 + 10, mid);
       var label = compactLabel(segments[i]);
       var fs = labelFontSize(label, n);
       var tone = dark ? 'dark' : 'light';
@@ -216,11 +220,11 @@
 
       labels.push(
         '<g class="satka-wheel-seg-content satka-wheel-tone-' + tone + '" transform="translate(' + lp.x.toFixed(2) + ',' + lp.y.toFixed(2) + ') rotate(' + rot.toFixed(2) + ')">' +
-        '<g class="satka-wheel-seg-icon-wrap" transform="translate(-11,-20)"><svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true">' +
+        '<g class="satka-wheel-seg-icon-wrap" transform="translate(-12,-22)"><svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true">' +
         iconPaths(segIconName(segments[i])) +
         '</svg></g>' +
-        '<text class="satka-wheel-seg-label" x="0" y="8" text-anchor="middle" fill="currentColor" font-size="' + fs +
-        '" font-weight="800" font-family="Inter,system-ui,sans-serif">' +
+        '<text class="satka-wheel-seg-label" x="0" y="10" text-anchor="middle" fill="currentColor" font-size="' + fs +
+        '" font-weight="800" font-family="Inter,system-ui,sans-serif" paint-order="stroke" stroke="rgba(0,0,0,0.35)" stroke-width="0.6">' +
         escapeXml(label) + '</text></g>'
       );
     }
@@ -485,9 +489,8 @@
   function tryInject() {
     if (!isReferralPath()) {
       injected = false;
-      document.querySelectorAll('[data-satka-wheel]').forEach(function (el) {
-        el.remove();
-      });
+      var existing = document.querySelector('[data-satka-wheel]');
+      if (existing) existing.remove();
       document.documentElement.classList.remove('satka-on-referral');
       return;
     }
@@ -515,32 +518,22 @@
     }
   }
 
-  tick();
-  function tick() {
+  function resetWheel() {
+    injected = false;
+    var old = document.querySelector('[data-satka-wheel]');
+    if (old) old.remove();
     tryInject();
   }
 
-  window.addEventListener('popstate', tick);
-  setInterval(tick, 600);
-  window.addEventListener('satka-language-changed', function () {
-    injected = false;
-    document.querySelectorAll('[data-satka-wheel]').forEach(function (el) {
-      el.remove();
-    });
-    tick();
-  });
-  if (window.SatkaI18n) {
-    window.SatkaI18n.onChange(function () {
-      injected = false;
-      document.querySelectorAll('[data-satka-wheel]').forEach(function (el) {
-        el.remove();
-      });
-      tick();
-    });
-  }
+  tryInject();
 
-  var root = document.getElementById('root');
-  if (root && 'MutationObserver' in window) {
-    new MutationObserver(tick).observe(root, { childList: true, subtree: true });
+  window.addEventListener('satka-language-changed', resetWheel);
+  if (window.SatkaI18n) window.SatkaI18n.onChange(resetWheel);
+
+  if (window.SatkaRoute) {
+    window.SatkaRoute.onChange(tryInject);
+    window.SatkaRoute.whenRootReady(tryInject);
+  } else {
+    window.addEventListener('popstate', tryInject);
   }
 })();

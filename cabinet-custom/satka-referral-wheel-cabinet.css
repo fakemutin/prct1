@@ -153,6 +153,9 @@ html.satka-on-referral .satka-orb {
   box-shadow:
     0 0 0 2px color-mix(in srgb, var(--satka-wheel-accent) 20%, transparent),
     0 12px 40px color-mix(in srgb, var(--satka-bg, #000) 50%, transparent);
+}
+
+html:not(.satka-in-telegram):not(.satka-low-perf) .satka-cabinet-wheel-frame {
   animation: satkaFrameGlow 3s ease-in-out infinite;
 }
 
@@ -198,8 +201,9 @@ html.satka-mobile .satka-cabinet-wheel-rotor {
 
 .satka-wheel-seg-label {
   font-family: Inter, system-ui, sans-serif;
-  letter-spacing: 0.02em;
+  letter-spacing: 0.03em;
   pointer-events: none;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
 }
 
 .satka-wheel-tone-dark {
@@ -437,6 +441,13 @@ html[data-satka-theme='light'] .satka-cabinet-wheel-btn {
   .satka-wheel-stat-hot { animation: none !important; }
 }
 
+html.satka-in-telegram .satka-shell,
+html.satka-in-telegram .satka-bg {
+  overflow: hidden !important;
+}
+html.satka-in-telegram .satka-orb {
+  display: none !important;
+}
 html.satka-in-telegram .satka-cabinet-wheel-frame {
   width: min(310px, calc(100vw - 2rem));
 }

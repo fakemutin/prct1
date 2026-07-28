@@ -56,16 +56,12 @@
     return null;
   }
 
-  function removePresets() {
-    document.querySelectorAll('[data-satka-presets]').forEach(function (el) {
-      el.remove();
-    });
-  }
-
   function injectPresets() {
+    if (!isSupportPath()) return;
     var form = findCreateForm();
     if (!form) return;
-    removePresets();
+    if (document.querySelector('[data-satka-presets]')) return;
+
     var wrap = document.createElement('div');
     wrap.className = 'satka-ticket-presets';
     wrap.dataset.satkaPresets = '1';
@@ -157,13 +153,13 @@
 
   hookFetch();
   update();
-  setInterval(update, 700);
-  window.addEventListener('popstate', update);
   window.addEventListener('satka-language-changed', update);
   if (window.SatkaI18n) window.SatkaI18n.onChange(update);
 
-  var root = document.getElementById('root');
-  if (root && 'MutationObserver' in window) {
-    new MutationObserver(update).observe(root, { childList: true, subtree: true });
+  if (window.SatkaRoute) {
+    window.SatkaRoute.onChange(update);
+    window.SatkaRoute.whenRootReady(update);
+  } else {
+    window.addEventListener('popstate', update);
   }
 })();

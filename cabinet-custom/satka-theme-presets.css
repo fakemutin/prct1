@@ -164,11 +164,8 @@ html[data-satka-theme] #root nav a.active {
 /* Tailwind dark-* utility overrides */
 html[data-satka-theme] #root [class*='bg-dark-950'],
 html[data-satka-theme] #root [class*='bg-dark-900'],
-html[data-satka-theme] #root [class*='bg-dark-800'] {
-  background-color: var(--satka-header-bg) !important;
-}
-
-html[data-satka-theme] #root [class*='bg-dark-'] {
+html[data-satka-theme] #root [class*='bg-dark-800'],
+html[data-satka-theme] #root [class*='bg-dark-700'] {
   background-color: var(--satka-card-bg) !important;
 }
 
@@ -185,14 +182,6 @@ html[data-satka-theme] #root h3 {
 }
 
 html[data-satka-theme] #root [class*='text-dark-300'],
-html[data-satka-theme] #root [class*='text-dark-400'],
-html[data-satka-theme] #root [class*='text-dark-500'],
-html[data-satka-theme] #root p,
-html[data-satka-theme] #root label,
-html[data-satka-theme] #root span {
-  color: inherit;
-}
-
 html[data-satka-theme] #root [class*='text-dark-400'],
 html[data-satka-theme] #root [class*='text-dark-500'] {
   color: var(--satka-text-muted) !important;
@@ -342,8 +331,10 @@ html[data-satka-theme='rose'] #root header {
 #root button:has(svg path[d*='188.9,190.34']),
 #root button:has(svg path[d*='M233.54']),
 #root button:has(svg path[d*='M128,56a72']),
+#root button:has(svg path[d*='M128,40']),
 #root button[aria-label*='theme' i]:not(.satka-theme-switcher button),
-#root button[aria-label*='Theme' i]:not(.satka-theme-switcher button) {
+#root button[aria-label*='Theme' i]:not(.satka-theme-switcher button),
+#root button[aria-label*='тема' i]:not(.satka-theme-switcher button) {
   display: none !important;
   visibility: hidden !important;
   pointer-events: none !important;
@@ -352,6 +343,13 @@ html[data-satka-theme='rose'] #root header {
   padding: 0 !important;
   margin: 0 !important;
   overflow: hidden !important;
+  position: absolute !important;
+  opacity: 0 !important;
+}
+
+/* Theme switcher hidden in Telegram MiniApp */
+html.satka-in-telegram .satka-theme-switcher {
+  display: none !important;
 }
 
 .satka-theme-swatch {

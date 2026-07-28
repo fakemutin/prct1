@@ -43,7 +43,6 @@ html.satka-mobile #root {
 #root {
   position: relative;
   z-index: 2;
-  contain: layout style;
 }
 
 /* ── Decorative shell (static on mobile / low-perf) ── */
@@ -550,14 +549,19 @@ html.satka-low-perf .satka-marquee-track {
   text-underline-offset: 2px;
 }
 
-/* Reveal (IntersectionObserver in JS) */
+/* Reveal — visible by default; animated only when FX module is active */
 .satka-reveal {
+  opacity: 1;
+  transform: none;
+}
+
+html.satka-fx-on .satka-reveal:not(.visible) {
   opacity: 0;
   transform: translateY(18px);
   transition: opacity 0.65s var(--satka-ease), transform 0.65s var(--satka-ease);
 }
 
-.satka-reveal.visible {
+html.satka-fx-on .satka-reveal.visible {
   opacity: 1;
   transform: none;
 }

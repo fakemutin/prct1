@@ -91,7 +91,7 @@
   }
 
   if (window.SatkaRoute) {
-    window.SatkaRoute.whenRootReady(watchApp);
+    window.SatkaRoute.whenReady(watchApp);
     window.SatkaRoute.onChange(resetInject);
   } else {
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', watchApp);

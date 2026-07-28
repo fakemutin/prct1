@@ -442,14 +442,22 @@ html[data-satka-theme='light'] .satka-cabinet-wheel-btn {
 }
 
 html.satka-in-telegram .satka-shell,
-html.satka-in-telegram .satka-bg {
-  overflow: hidden !important;
-}
-html.satka-in-telegram .satka-orb {
+html.satka-in-telegram .satka-bg,
+html.satka-in-telegram .satka-wheel-lights {
   display: none !important;
+}
+html.satka-in-telegram .satka-cabinet-wheel-block .satka-wheel-lights,
+html.satka-in-telegram .satka-cabinet-wheel-frame,
+html.satka-in-telegram .satka-cabinet-wheel-pointer,
+html.satka-in-telegram .satka-cabinet-wheel-hub,
+html.satka-in-telegram .satka-wheel-stat-hot,
+html.satka-in-telegram .satka-cabinet-wheel-btn.is-ready,
+html.satka-in-telegram .satka-wheel-btn-shine {
+  animation: none !important;
 }
 html.satka-in-telegram .satka-cabinet-wheel-frame {
   width: min(310px, calc(100vw - 2rem));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--satka-wheel-accent) 15%, transparent) !important;
 }
 html.satka-in-telegram .satka-cabinet-wheel-block {
   overflow: hidden !important;

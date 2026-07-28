@@ -9,7 +9,6 @@
   var SPIN_MS = 5200;
   var rotation = 0;
   var spinning = false;
-  var injected = false;
   var state = null;
   var segmentsCache = [];
 
@@ -488,14 +487,13 @@
 
   function tryInject() {
     if (!isReferralPath()) {
-      injected = false;
       var existing = document.querySelector('[data-satka-wheel]');
       if (existing) existing.remove();
       document.documentElement.classList.remove('satka-on-referral');
       return;
     }
     document.documentElement.classList.add('satka-on-referral');
-    if (injected || document.querySelector('[data-satka-wheel]')) return;
+    if (document.querySelector('[data-satka-wheel]')) return;
 
     var root = document.getElementById('root');
     if (!root) return;
@@ -505,7 +503,6 @@
     var block = buildBlock();
     if (main.firstChild) main.insertBefore(block, main.firstChild);
     else main.appendChild(block);
-    injected = true;
     loadState(block);
     if (isTelegramMiniApp()) {
       setTimeout(function () {
@@ -519,21 +516,29 @@
   }
 
   function resetWheel() {
-    injected = false;
     var old = document.querySelector('[data-satka-wheel]');
     if (old) old.remove();
     tryInject();
   }
 
-  tryInject();
+  function boot() {
+    tryInject();
+  }
 
   window.addEventListener('satka-language-changed', resetWheel);
   if (window.SatkaI18n) window.SatkaI18n.onChange(resetWheel);
 
   if (window.SatkaRoute) {
-    window.SatkaRoute.onChange(tryInject);
-    window.SatkaRoute.whenRootReady(tryInject);
+    window.SatkaRoute.whenReady(boot);
+    window.SatkaRoute.onChange(boot);
   } else {
-    window.addEventListener('popstate', tryInject);
+    boot();
+    window.addEventListener('popstate', boot);
+    var tries = 0;
+    var timer = setInterval(function () {
+      tries += 1;
+      boot();
+      if (document.querySelector('[data-satka-wheel]') || tries > 60) clearInterval(timer);
+    }, 400);
   }
 })();

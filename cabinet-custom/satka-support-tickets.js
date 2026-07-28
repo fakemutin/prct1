@@ -157,8 +157,8 @@
   if (window.SatkaI18n) window.SatkaI18n.onChange(update);
 
   if (window.SatkaRoute) {
+    window.SatkaRoute.whenReady(update);
     window.SatkaRoute.onChange(update);
-    window.SatkaRoute.whenRootReady(update);
   } else {
     window.addEventListener('popstate', update);
   }

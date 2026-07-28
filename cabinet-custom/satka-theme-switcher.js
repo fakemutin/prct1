@@ -20,7 +20,6 @@
     aurora: '#061210',
     rose: '#10080c',
   };
-  var mounted = false;
   var isTelegram =
     document.documentElement.classList.contains('satka-in-telegram') ||
     !!window.TelegramWebviewProxy;
@@ -128,22 +127,22 @@
   }
 
   function mountSwitcher() {
-    if (isTelegram || mounted) return;
-    if (document.querySelector('.satka-theme-switcher')) {
-      mounted = true;
-      return;
-    }
+    if (isTelegram) return;
+    if (document.querySelector('.satka-theme-switcher')) return;
     var langBtn = document.querySelector('button[aria-label="Change language"]');
     if (!langBtn || !langBtn.parentElement) return;
     langBtn.parentElement.insertBefore(buildSwitcher(), langBtn);
-    mounted = true;
     applyTheme(getTheme(), true);
   }
 
   function remountForLanguage() {
     var sw = document.querySelector('.satka-theme-switcher');
     if (sw) sw.remove();
-    mounted = false;
+    mountSwitcher();
+  }
+
+  function boot() {
+    applyTheme(getTheme(), true);
     mountSwitcher();
   }
 
@@ -158,18 +157,15 @@
   }
 
   if (window.SatkaRoute) {
-    window.SatkaRoute.whenRootReady(mountSwitcher);
-    window.SatkaRoute.onChange(function () {
-      applyTheme(getTheme(), true);
-      mountSwitcher();
-    });
+    window.SatkaRoute.whenReady(boot);
+    window.SatkaRoute.onChange(boot);
   } else {
     var tries = 0;
     var timer = setInterval(function () {
       tries += 1;
-      mountSwitcher();
-      if (mounted || tries > 40) clearInterval(timer);
-    }, 400);
+      boot();
+      if (document.querySelector('.satka-theme-switcher') || tries > 60) clearInterval(timer);
+    }, 350);
   }
 
   window.SatkaTheme = {

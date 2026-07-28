@@ -131,7 +131,9 @@
     if (document.querySelector('.satka-theme-switcher')) return;
     var langBtn = document.querySelector('button[aria-label="Change language"]');
     if (!langBtn || !langBtn.parentElement) return;
-    langBtn.parentElement.insertBefore(buildSwitcher(), langBtn);
+    var parent = langBtn.parentElement;
+    parent.classList.add('satka-header-prefs');
+    parent.insertBefore(buildSwitcher(), langBtn);
     applyTheme(getTheme(), true);
   }
 

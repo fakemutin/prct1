@@ -13,17 +13,28 @@
     });
   }
 
+  function removeInjectedHome() {
+    document.querySelectorAll('[data-satka-home]').forEach(function (el) {
+      el.remove();
+    });
+  }
+
   function onRouteChange() {
     removeOnboardingOverlay();
+    removeInjectedHome();
     try {
       localStorage.setItem(ONBOARD_KEY, 'true');
     } catch (e) {}
   }
 
   removeOnboardingOverlay();
+  removeInjectedHome();
 
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', removeOnboardingOverlay);
+    document.addEventListener('DOMContentLoaded', function () {
+      removeOnboardingOverlay();
+      removeInjectedHome();
+    });
   }
 
   /* ── SatkaRoute: app-ready + navigation hooks ── */

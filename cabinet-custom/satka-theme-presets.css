@@ -269,8 +269,32 @@ html[data-satka-theme='rose'] #root header {
   gap: 0.45rem;
 }
 
+/* Theme switcher + header controls row */
+#root header .satka-header-prefs {
+  display: inline-flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  justify-content: flex-end !important;
+  gap: 0.35rem !important;
+  flex-wrap: nowrap !important;
+  flex-shrink: 0;
+}
+
+#root header .satka-header-prefs > button[aria-label='Change language'],
+#root header .satka-theme-switcher > button {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  min-width: 2.25rem;
+  min-height: 2.25rem;
+  margin: 0 !important;
+  flex-shrink: 0;
+}
+
 .satka-theme-switcher {
   position: relative;
+  display: inline-flex;
+  align-items: center;
 }
 
 .satka-theme-switcher > button {

@@ -1,0 +1,5 @@
+/* No email verification — hide register hints on login page */
+
+html.satka-no-email-verify.satka-on-login p.text-center.text-xs.text-dark-500 {
+  display: none !important;
+}

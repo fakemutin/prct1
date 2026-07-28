@@ -11,6 +11,8 @@ services:
       - ./cabinet-custom/satka-theme-switcher.js:/usr/share/nginx/html/satka-theme-switcher.js:ro
       - ./cabinet-custom/satka-enhance.js:/usr/share/nginx/html/satka-enhance.js:ro
       - ./cabinet-custom/satka-fix.js:/usr/share/nginx/html/satka-fix.js:ro
+      - ./cabinet-custom/satka-auth-fix.js:/usr/share/nginx/html/satka-auth-fix.js:ro
+      - ./cabinet-custom/satka-auth-fix.css:/usr/share/nginx/html/satka-auth-fix.css:ro
       - ./cabinet-custom/satka-route.js:/usr/share/nginx/html/satka-route.js:ro
       - ./cabinet-custom/satka-login-fix.js:/usr/share/nginx/html/satka-login-fix.js:ro
       - ./cabinet-custom/satka-neutral-meta.js:/usr/share/nginx/html/satka-neutral-meta.js:ro

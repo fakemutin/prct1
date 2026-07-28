@@ -337,12 +337,21 @@ html[data-satka-theme='rose'] #root header {
   background: var(--satka-hover);
 }
 
-/* Hide built-in moon/dark toggle — we have Satka theme switcher */
+/* Hide built-in moon/sun theme toggle */
 #root button:has(svg path[d*='233.54,142.23']),
-#root button:has(svg path[d*='188.9,190.34']) {
+#root button:has(svg path[d*='188.9,190.34']),
+#root button:has(svg path[d*='M233.54']),
+#root button:has(svg path[d*='M128,56a72']),
+#root button[aria-label*='theme' i]:not(.satka-theme-switcher button),
+#root button[aria-label*='Theme' i]:not(.satka-theme-switcher button) {
   display: none !important;
   visibility: hidden !important;
   pointer-events: none !important;
+  width: 0 !important;
+  height: 0 !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  overflow: hidden !important;
 }
 
 .satka-theme-swatch {

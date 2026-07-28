@@ -6,7 +6,7 @@
   }
 
   var API_BASE = '/api/cabinet/satka/referral-wheel';
-  var SPIN_MS = 4800;
+  var SPIN_MS = 5200;
   var rotation = 0;
   var spinning = false;
   var injected = false;
@@ -50,8 +50,8 @@
     return !!(tg && tg.initData) || document.documentElement.classList.contains('satka-in-telegram');
   }
 
-  function easeOutQuart(t) {
-    return 1 - Math.pow(1 - t, 4);
+  function easeOutQuint(t) {
+    return 1 - Math.pow(1 - t, 5);
   }
 
   function applyRotorDeg(rotor, deg) {
@@ -66,8 +66,7 @@
       function frame(ts) {
         if (startTs === null) startTs = ts;
         var p = Math.min(1, (ts - startTs) / duration);
-        var deg = fromDeg + (toDeg - fromDeg) * easeOutQuart(p);
-        applyRotorDeg(rotor, deg);
+        applyRotorDeg(rotor, fromDeg + (toDeg - fromDeg) * easeOutQuint(p));
         if (p < 1) requestAnimationFrame(frame);
         else resolve();
       }
@@ -100,12 +99,12 @@
     if (/скидк/i.test(text)) return 'Скидка';
     if (/баланс|рубл/i.test(text)) return 'Баланс';
     if (/подписк/i.test(text)) return 'Дни';
-    if (text.length <= 7) return text;
-    return text.split(/\s+/)[0].slice(0, 6);
+    if (text.length <= 8) return text;
+    return text.split(/\s+/)[0].slice(0, 7);
   }
 
-  function iconPaths(name, color) {
-    var s = ' stroke="' + color + '" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"';
+  function iconPaths(name) {
+    var s = ' stroke="currentColor" fill="none" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"';
     var map = {
       balance: '<circle cx="12" cy="12" r="9"' + s + '/><path d="M12 7v10M9 10h4.5a2 2 0 1 0 0-4H10a2 2 0 0 0 0 4h4.5a2 2 0 1 1 0 4H9"' + s + '/>',
       days: '<rect x="3" y="5" width="18" height="16" rx="2"' + s + '/><path d="M8 3v4M16 3v4M3 10h18"' + s + '/>',
@@ -118,10 +117,9 @@
   }
 
   function labelFontSize(label, n) {
-    var len = label.length;
-    if (n > 10) return len > 6 ? 8.5 : 9.5;
-    if (n > 8) return len > 6 ? 9 : 10;
-    return len > 6 ? 9.5 : 11;
+    if (n > 10) return label.length > 5 ? 8 : 9;
+    if (n > 8) return label.length > 5 ? 8.5 : 9.5;
+    return label.length > 6 ? 9 : 10.5;
   }
 
   function polar(cx, cy, r, deg) {
@@ -129,70 +127,121 @@
     return { x: cx + Math.cos(rad) * r, y: cy + Math.sin(rad) * r };
   }
 
-  function segIconSvg(seg, dark) {
-    return iconPaths(segIconName(seg), dark ? '#ffffff' : '#111111');
+  function resolveSegmentIndex(data) {
+    if (typeof data.segment_index === 'number' && data.segment_index >= 0) {
+      return Math.min(data.segment_index, segmentsCache.length - 1);
+    }
+    var id = data.id || data.prize_id || (data.prize && data.prize.id);
+    if (id != null) {
+      for (var i = 0; i < segmentsCache.length; i++) {
+        if (String(segmentsCache[i].id) === String(id)) return i;
+      }
+    }
+    if (data.title || data.short) {
+      var title = String(data.title || data.short);
+      for (var j = 0; j < segmentsCache.length; j++) {
+        var seg = segmentsCache[j];
+        if (seg.title === title || seg.short === title) return j;
+      }
+    }
+    return 0;
+  }
+
+  function calcSpinDelta(idx, n, currentRotation) {
+    var step = 360 / n;
+    var mid = -90 + idx * step + step / 2;
+    var targetMod = ((-90 - mid) % 360 + 360) % 360;
+    var currentMod = ((currentRotation % 360) + 360) % 360;
+    var delta = (targetMod - currentMod + 360) % 360;
+    if (delta < 45) delta += 360;
+    var fullSpins = 5 + Math.floor(Math.random() * 2);
+    return fullSpins * 360 + delta;
   }
 
   function buildSvgWheel(segments) {
     var n = Math.max(segments.length, 1);
-    var size = 420;
+    var size = 440;
     var cx = size / 2;
     var cy = size / 2;
-    var outer = size * 0.48;
-    var inner = size * 0.15;
+    var outer = size * 0.445;
+    var inner = size * 0.155;
+    var rimOuter = outer + 10;
     var step = 360 / n;
     var start = -90;
     var parts = [];
     var labels = [];
+    var dividers = [];
+    var teeth = [];
 
     for (var i = 0; i < n; i++) {
       var a0 = start + i * step;
       var a1 = start + (i + 1) * step;
       var p0 = polar(cx, cy, outer, a0);
       var p1 = polar(cx, cy, outer, a1);
+      var pi0 = polar(cx, cy, inner, a0);
+      var pi1 = polar(cx, cy, inner, a1);
       var large = step > 180 ? 1 : 0;
       var dark = i % 2 === 0;
-      var fill = dark ? '#101010' : '#fafafa';
-      var stroke = dark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)';
+      var fill = dark ? 'var(--satka-wheel-seg-a, #111)' : 'var(--satka-wheel-seg-b, #f4f4f4)';
       var d =
-        'M ' + cx + ' ' + cy +
+        'M ' + pi0.x + ' ' + pi0.y +
         ' L ' + p0.x + ' ' + p0.y +
-        ' A ' + outer + ' ' + outer + ' 0 ' + large + ' 1 ' + p1.x + ' ' + p1.y + ' Z';
+        ' A ' + outer + ' ' + outer + ' 0 ' + large + ' 1 ' + p1.x + ' ' + p1.y +
+        ' L ' + pi1.x + ' ' + pi1.y +
+        ' A ' + inner + ' ' + inner + ' 0 ' + large + ' 0 ' + pi0.x + ' ' + pi0.y + ' Z';
       parts.push(
         '<path class="satka-wheel-seg" data-seg-index="' + i + '" d="' + d +
-        '" fill="' + fill + '" stroke="' + stroke + '" stroke-width="1"/>'
+        '" fill="' + fill + '" stroke="var(--satka-wheel-divider, rgba(255,255,255,0.12))" stroke-width="0.8"/>'
       );
 
+      var divEnd = polar(cx, cy, outer, a1);
+      dividers.push(
+        '<line x1="' + cx + '" y1="' + cy + '" x2="' + divEnd.x + '" y2="' + divEnd.y +
+        '" stroke="var(--satka-wheel-divider, rgba(255,255,255,0.15))" stroke-width="1"/>'
+      );
+
+      var toothA = a1;
+      var t0 = polar(cx, cy, outer - 1, toothA - step * 0.08);
+      var t1 = polar(cx, cy, rimOuter + 2, toothA);
+      var t2 = polar(cx, cy, outer - 1, toothA + step * 0.08);
+      teeth.push('<polygon points="' + t0.x + ',' + t0.y + ' ' + t1.x + ',' + t1.y + ' ' + t2.x + ',' + t2.y +
+        '" fill="var(--satka-wheel-rim, #fff)" opacity="0.9"/>');
+
       var mid = a0 + step / 2;
-      var lp = polar(cx, cy, outer * 0.72, mid);
+      var lp = polar(cx, cy, (outer + inner) / 2 + 6, mid);
       var label = compactLabel(segments[i]);
       var fs = labelFontSize(label, n);
-      var pillBg = dark ? '#ffffff' : '#111111';
-      var pillText = dark ? '#111111' : '#ffffff';
-      var iconColor = dark ? '#ffffff' : '#111111';
-      var pillW = Math.min(Math.max(label.length * 6.8 + 12, 34), 62);
+      var tone = dark ? 'dark' : 'light';
       var rot = mid + 90;
 
       labels.push(
-        '<g class="satka-wheel-seg-content" transform="translate(' + lp.x + ',' + lp.y + ') rotate(' + rot + ')">' +
-        '<g transform="translate(-12,-28)"><svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true">' +
-        iconPaths(segIconName(segments[i]), iconColor) +
+        '<g class="satka-wheel-seg-content satka-wheel-tone-' + tone + '" transform="translate(' + lp.x.toFixed(2) + ',' + lp.y.toFixed(2) + ') rotate(' + rot.toFixed(2) + ')">' +
+        '<g class="satka-wheel-seg-icon-wrap" transform="translate(-11,-20)"><svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true">' +
+        iconPaths(segIconName(segments[i])) +
         '</svg></g>' +
-        '<rect x="' + (-pillW / 2) + '" y="-2" width="' + pillW + '" height="15" rx="5" fill="' + pillBg + '"/>' +
-        '<text class="satka-wheel-seg-label" x="0" y="9" text-anchor="middle" fill="' + pillText +
-        '" font-size="' + fs + '" font-weight="800" font-family="Inter,system-ui,sans-serif">' +
+        '<text class="satka-wheel-seg-label" x="0" y="8" text-anchor="middle" fill="currentColor" font-size="' + fs +
+        '" font-weight="800" font-family="Inter,system-ui,sans-serif">' +
         escapeXml(label) + '</text></g>'
       );
     }
 
     return (
       '<svg class="satka-wheel-svg" viewBox="0 0 ' + size + ' ' + size + '" role="img" aria-label="' + t('wheel.heading') + '">' +
-      '<defs><filter id="satkaWheelGlow"><feGaussianBlur stdDeviation="2" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>' +
-      '<circle cx="' + cx + '" cy="' + cy + '" r="' + (outer + 2) +
-      '" fill="none" stroke="rgba(255,255,255,0.15)" stroke-width="2"/>' +
+      '<defs>' +
+      '<filter id="satkaWheelGlow"><feGaussianBlur stdDeviation="2.5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>' +
+      '<radialGradient id="satkaWheelShine" cx="40%" cy="35%" r="65%">' +
+      '<stop offset="0%" stop-color="rgba(255,255,255,0.14)"/><stop offset="100%" stop-color="rgba(255,255,255,0)"/>' +
+      '</radialGradient></defs>' +
+      '<circle class="satka-wheel-rim-bg" cx="' + cx + '" cy="' + cy + '" r="' + (rimOuter + 4) +
+      '" fill="none" stroke="var(--satka-wheel-rim, #fff)" stroke-width="5" opacity="0.25"/>' +
+      teeth.join('') +
       parts.join('') +
-      '<circle cx="' + cx + '" cy="' + cy + '" r="' + inner + '" fill="#0a0a0a" stroke="rgba(255,255,255,0.45)" stroke-width="2"/>' +
-      labels.join('') + '</svg>'
+      dividers.join('') +
+      '<circle cx="' + cx + '" cy="' + cy + '" r="' + outer + '" fill="url(#satkaWheelShine)" pointer-events="none"/>' +
+      labels.join('') +
+      '<circle cx="' + cx + '" cy="' + cy + '" r="' + (inner + 2) +
+      '" fill="none" stroke="var(--satka-wheel-rim, #fff)" stroke-width="2.5" opacity="0.5"/>' +
+      '</svg>'
     );
   }
 
@@ -208,16 +257,18 @@
     wrap.className = 'satka-cabinet-wheel-block';
     wrap.dataset.satkaWheel = '1';
     wrap.innerHTML =
+      '<div class="satka-wheel-lights" aria-hidden="true"></div>' +
       '<h3>' + icon('spark', 'satka-wheel-title-icon') + '<span>' + t('wheel.heading') + '</span></h3>' +
       '<p class="satka-cabinet-wheel-lead">' + t('wheel.lead') + '</p>' +
       '<div class="satka-cabinet-wheel-stats" data-wheel-stats></div>' +
+      '<div class="satka-cabinet-wheel-frame">' +
       '<div class="satka-cabinet-wheel-stage">' +
       '<div class="satka-cabinet-wheel-pointer" aria-hidden="true"></div>' +
       '<div class="satka-cabinet-wheel-rotor">' +
       '<div class="satka-cabinet-wheel-disc"></div>' +
       '</div>' +
       '<div class="satka-cabinet-wheel-hub"><img src="/logo.svg" alt="" /></div>' +
-      '</div>' +
+      '</div></div>' +
       '<div class="satka-cabinet-wheel-legend" data-wheel-legend></div>' +
       '<div class="satka-cabinet-wheel-actions">' +
       '<button type="button" class="satka-cabinet-wheel-btn" data-cabinet-wheel-spin disabled>' +
@@ -276,7 +327,6 @@
     var disc = wrap.querySelector('.satka-cabinet-wheel-disc');
     if (!disc) return;
     disc.innerHTML = buildSvgWheel(segmentsCache);
-    disc.classList.add('satka-wheel-disc-live');
     renderLegend(wrap, segmentsCache);
   }
 
@@ -291,28 +341,40 @@
     });
   }
 
+  function launchConfetti(wrap) {
+    var stage = wrap.querySelector('.satka-cabinet-wheel-stage');
+    if (!stage) return;
+    var old = stage.querySelector('.satka-wheel-confetti');
+    if (old) old.remove();
+    var box = document.createElement('div');
+    box.className = 'satka-wheel-confetti';
+    box.setAttribute('aria-hidden', 'true');
+    for (var i = 0; i < 18; i++) {
+      var p = document.createElement('span');
+      p.style.setProperty('--satka-confetti-i', String(i));
+      box.appendChild(p);
+    }
+    stage.appendChild(box);
+    setTimeout(function () { if (box.parentNode) box.remove(); }, 2200);
+  }
+
   function spinTo(wrap, data) {
     var rotor = wrap.querySelector('.satka-cabinet-wheel-rotor');
     if (!rotor) return Promise.resolve();
 
     var n = segmentsCache.length || 8;
-    var idx = typeof data.segment_index === 'number' ? data.segment_index : 0;
-    var step = 360 / n;
-    var extra = data.rotation_degrees || 360 * 6 + idx * step;
-    if (extra < 360 * 4) {
-      extra = 360 * 5 + (n - idx) * step + step / 2;
-    }
+    var idx = resolveSegmentIndex(data);
     var fromDeg = rotation;
-    rotation += extra;
+    var extra = calcSpinDelta(idx, n, fromDeg);
+    rotation = fromDeg + extra;
     var toDeg = rotation;
     var duration = SPIN_MS / 1000;
+    var useJsAnim = isTelegramMiniApp() || document.documentElement.classList.contains('satka-mobile');
 
     function done() {
       highlightWinner(wrap, idx);
+      launchConfetti(wrap);
     }
-
-    var useJsAnim = document.documentElement.classList.contains('satka-low-perf') &&
-      window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
     if (useJsAnim) {
       return animateRotationJs(rotor, fromDeg, toDeg, SPIN_MS).then(done);
@@ -321,7 +383,7 @@
     rotor.style.transition = 'none';
     applyRotorDeg(rotor, fromDeg);
     void rotor.offsetWidth;
-    rotor.style.transition = 'transform ' + duration + 's cubic-bezier(0.17, 0.67, 0.12, 0.99)';
+    rotor.style.transition = 'transform ' + duration + 's cubic-bezier(0.15, 0.85, 0.2, 1)';
     applyRotorDeg(rotor, toDeg);
 
     return new Promise(function (resolve) {
@@ -338,16 +400,14 @@
         if (e.target === rotor && e.propertyName === 'transform') finish();
       }
       rotor.addEventListener('transitionend', onEnd);
-      var fallback = setTimeout(finish, SPIN_MS + 300);
+      var fallback = setTimeout(finish, SPIN_MS + 350);
     });
   }
 
   function finishSpin(wrap, data) {
     var resEl = wrap.querySelector('.satka-cabinet-wheel-result');
     var iconName = segIconName(data);
-    var msg =
-      (data.title || t('wheel.prize')) +
-      (data.detail ? ' — ' + data.detail : '');
+    var msg = (data.title || t('wheel.prize')) + (data.detail ? ' — ' + data.detail : '');
     if (resEl) {
       resEl.innerHTML =
         '<span class="satka-wheel-win-banner">' +
@@ -428,8 +488,10 @@
       document.querySelectorAll('[data-satka-wheel]').forEach(function (el) {
         el.remove();
       });
+      document.documentElement.classList.remove('satka-on-referral');
       return;
     }
+    document.documentElement.classList.add('satka-on-referral');
     if (injected || document.querySelector('[data-satka-wheel]')) return;
 
     var root = document.getElementById('root');
@@ -453,11 +515,11 @@
     }
   }
 
+  tick();
   function tick() {
     tryInject();
   }
 
-  tick();
   window.addEventListener('popstate', tick);
   setInterval(tick, 600);
   window.addEventListener('satka-language-changed', function () {

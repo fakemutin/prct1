@@ -149,7 +149,7 @@ html.satka-low-perf .satka-cabinet-wheel-rotor {
 }
 
 html.satka-in-telegram .satka-cabinet-wheel-block {
-  overflow: visible;
+  overflow: hidden !important;
   padding-left: 0.5rem;
   padding-right: 0.5rem;
 }

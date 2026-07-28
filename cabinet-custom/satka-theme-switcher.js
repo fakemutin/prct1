@@ -45,15 +45,31 @@
   }
 
   function hideNativeThemeToggle() {
+    var langBtn = document.querySelector('button[aria-label="Change language"]');
+    if (langBtn && langBtn.parentElement) {
+      langBtn.parentElement.querySelectorAll('button').forEach(function (btn) {
+        if (btn === langBtn || btn.closest('.satka-theme-switcher')) return;
+        var label = (btn.getAttribute('aria-label') || '').toLowerCase();
+        var onlyIcon = btn.querySelector('svg') && !(btn.textContent || '').trim();
+        if (onlyIcon || label.indexOf('theme') >= 0 || label.indexOf('тема') >= 0 || label.indexOf('mode') >= 0) {
+          btn.remove();
+          return;
+        }
+      });
+    }
     document.querySelectorAll('#root button').forEach(function (btn) {
       if (btn.closest('.satka-theme-switcher')) return;
       var path = btn.querySelector('svg path');
       if (!path) return;
       var d = path.getAttribute('d') || '';
-      if (d.indexOf('233.54,142.23') !== -1 || d.indexOf('188.9,190.34') !== -1) {
-        btn.hidden = true;
-        btn.setAttribute('aria-hidden', 'true');
-        btn.style.display = 'none';
+      if (
+        d.indexOf('233.54,142.23') !== -1 ||
+        d.indexOf('188.9,190.34') !== -1 ||
+        d.indexOf('M233.54') !== -1 ||
+        d.indexOf('M128,56a72') !== -1 ||
+        d.indexOf('M128,40') !== -1
+      ) {
+        btn.remove();
       }
     });
   }

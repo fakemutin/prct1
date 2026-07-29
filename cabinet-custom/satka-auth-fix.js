@@ -6,12 +6,42 @@
   var API_EMAIL_AUTH = '/api/cabinet/branding/email-auth';
   var CSRF_COOKIE = 'csrf_token';
   var CSRF_HEADER = 'X-CSRF-Token';
-  var verificationDisabled = false;
-  var lastCredentials = null;
-  var pendingAutoLogin = false;
+  var STORE_KEY = 'satka_pending_register';
+  var verificationDisabled = true;
+  var loginInFlight = false;
 
   function isLoginPage() {
     return /\/login\/?$/i.test(window.location.pathname);
+  }
+
+  function applyUi() {
+    document.documentElement.classList.add('satka-no-email-verify');
+    if (isLoginPage()) document.documentElement.classList.add('satka-on-login');
+  }
+
+  function setPending(on) {
+    document.documentElement.classList.toggle('satka-register-pending', !!on);
+  }
+
+  function saveCredentials(credentials) {
+    if (!credentials || !credentials.email || !credentials.password) return;
+    try {
+      sessionStorage.setItem(STORE_KEY, JSON.stringify({ email: credentials.email, password: credentials.password }));
+    } catch (e) {}
+  }
+
+  function loadCredentials() {
+    try {
+      return JSON.parse(sessionStorage.getItem(STORE_KEY) || 'null');
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function clearCredentials() {
+    try {
+      sessionStorage.removeItem(STORE_KEY);
+    } catch (e) {}
   }
 
   function ensureCsrfToken() {
@@ -29,17 +59,6 @@
     return token;
   }
 
-  function setTokens(auth) {
-    if (!auth || !auth.access_token) return false;
-    try {
-      sessionStorage.setItem('access_token', auth.access_token);
-      if (auth.refresh_token) localStorage.setItem('refresh_token', auth.refresh_token);
-    } catch (e) {
-      return false;
-    }
-    return true;
-  }
-
   function parseJson(text) {
     try {
       return JSON.parse(text);
@@ -48,14 +67,16 @@
     }
   }
 
-  function applyNoVerifyUi() {
-    document.documentElement.classList.add('satka-no-email-verify');
-    if (isLoginPage()) document.documentElement.classList.add('satka-on-login');
-  }
-
-  function showRegisterPending() {
-    pendingAutoLogin = true;
-    document.documentElement.classList.add('satka-register-pending');
+  function setTokens(auth) {
+    if (!auth || !auth.access_token) return false;
+    try {
+      sessionStorage.setItem('access_token', auth.access_token);
+      if (auth.refresh_token) localStorage.setItem('refresh_token', auth.refresh_token);
+      if (auth.user) sessionStorage.setItem('user', JSON.stringify(auth.user));
+    } catch (e) {
+      return false;
+    }
+    return true;
   }
 
   function shouldSkipVerification(body) {
@@ -87,25 +108,46 @@
       });
   }
 
+  function completeLogin(credentials) {
+    if (!credentials || loginInFlight) return;
+    loginInFlight = true;
+    setPending(true);
+    applyUi();
+
+    function attempt(n) {
+      autoLogin(credentials.email, credentials.password).then(function (auth) {
+        if (setTokens(auth)) {
+          clearCredentials();
+          window.location.replace('/');
+          return;
+        }
+        if (n < 4) {
+          setTimeout(function () {
+            attempt(n + 1);
+          }, 400);
+          return;
+        }
+        loginInFlight = false;
+        setPending(false);
+      });
+    }
+
+    attempt(0);
+  }
+
   function afterRegister(body, credentials) {
+    credentials = credentials || loadCredentials();
     if (!credentials || !credentials.email || !credentials.password) return;
     if (!shouldSkipVerification(body)) return;
-
-    showRegisterPending();
-    autoLogin(credentials.email, credentials.password).then(function (auth) {
-      if (setTokens(auth)) {
-        window.location.replace('/');
-        return;
-      }
-      document.documentElement.classList.remove('satka-register-pending');
-      pendingAutoLogin = false;
-    });
+    saveCredentials(credentials);
+    completeLogin(credentials);
   }
 
   function onRegisterRequest(body) {
-    var credentials = typeof body === 'string' ? parseJson(body) : null;
-    if (credentials) lastCredentials = credentials;
-    if (shouldSkipVerification({ requires_verification: false })) showRegisterPending();
+    var credentials = typeof body === 'string' ? parseJson(body) : body;
+    if (credentials) saveCredentials(credentials);
+    setPending(true);
+    applyUi();
   }
 
   function hookXHR() {
@@ -130,18 +172,17 @@
 
       if (isRegister && body) {
         onRegisterRequest(body);
-        credentials = parseJson(body);
+        credentials = typeof body === 'string' ? parseJson(body) : null;
       }
 
       if (isRegister) {
         xhr.addEventListener('load', function () {
           if (xhr.status < 200 || xhr.status >= 300) {
-            document.documentElement.classList.remove('satka-register-pending');
-            pendingAutoLogin = false;
+            setPending(false);
             return;
           }
           var res = parseJson(xhr.responseText);
-          if (res) afterRegister(res, credentials || lastCredentials);
+          if (res) afterRegister(res, credentials || loadCredentials());
         });
       }
 
@@ -168,15 +209,14 @@
       return orig.apply(this, arguments).then(function (res) {
         if (!isRegister) return res;
         if (!res.ok) {
-          document.documentElement.classList.remove('satka-register-pending');
-          pendingAutoLogin = false;
+          setPending(false);
           return res;
         }
         return res
           .clone()
           .json()
           .then(function (body) {
-            afterRegister(body, credentials || lastCredentials);
+            afterRegister(body, credentials || loadCredentials());
             return res;
           })
           .catch(function () {
@@ -186,46 +226,71 @@
     };
   }
 
-  function hideCheckEmailCard(node) {
-    if (!node || node.nodeType !== 1) return false;
-    var card = node.closest ? node.closest('.card.text-center') : null;
-    if (!card) return false;
-    var heading = card.querySelector('h2');
-    if (!heading) return false;
-    var text = (heading.textContent || '').toLowerCase();
-    if (
-      text.indexOf('почт') !== -1 ||
-      text.indexOf('email') !== -1 ||
-      text.indexOf('mail') !== -1
-    ) {
-      card.style.display = 'none';
-      return true;
-    }
-    return false;
+  function isVerifyHeading(text) {
+    var t = String(text || '').toLowerCase();
+    return (
+      t.indexOf('проверьте') !== -1 ||
+      t.indexOf('почт') !== -1 ||
+      t.indexOf('check your email') !== -1 ||
+      t.indexOf('verification') !== -1
+    );
   }
 
-  function watchVerificationCard() {
-    if (!verificationDisabled || !isLoginPage()) return;
+  function hideVerifyScreen() {
+    if (!isLoginPage()) return false;
     var root = document.getElementById('root');
-    if (!root) return;
+    if (!root) return false;
+    var hidden = false;
 
-    function scan() {
-      if (!verificationDisabled || pendingAutoLogin) return;
-      root.querySelectorAll('.card.text-center h2').forEach(function (h2) {
-        hideCheckEmailCard(h2);
-      });
+    root.querySelectorAll('h2, h1, p').forEach(function (el) {
+      if (!isVerifyHeading(el.textContent)) return;
+      var card = el.closest ? el.closest('.card') : null;
+      if (card) {
+        card.style.setProperty('display', 'none', 'important');
+        hidden = true;
+      }
+    });
+
+    root.querySelectorAll('.card.text-center').forEach(function (card) {
+      var heading = card.querySelector('h2, h1');
+      if (heading && isVerifyHeading(heading.textContent)) {
+        card.style.setProperty('display', 'none', 'important');
+        hidden = true;
+      }
+    });
+
+    if (hidden) {
+      var creds = loadCredentials();
+      if (creds) completeLogin(creds);
     }
-
-    scan();
-    if (window.__satkaAuthCardObserver) return;
-    window.__satkaAuthCardObserver = new MutationObserver(scan);
-    window.__satkaAuthCardObserver.observe(root, { childList: true, subtree: true });
+    return hidden;
   }
 
-  function syncLoginClass() {
+  function watchForm() {
+    if (!isLoginPage()) return;
+    document.querySelectorAll('form').forEach(function (form) {
+      if (form.__satkaAuthBound) return;
+      form.__satkaAuthBound = true;
+      form.addEventListener(
+        'submit',
+        function () {
+          var email = form.querySelector('input[type="email"], input[name="email"], input[autocomplete="email"]');
+          var pass = form.querySelector('input[type="password"], input[name="password"]');
+          if (email && pass && email.value && pass.value) {
+            saveCredentials({ email: email.value, password: pass.value });
+            setPending(true);
+          }
+        },
+        true
+      );
+    });
+  }
+
+  function tick() {
+    applyUi();
     if (isLoginPage()) {
-      document.documentElement.classList.add('satka-on-login');
-      watchVerificationCard();
+      hideVerifyScreen();
+      watchForm();
     } else {
       document.documentElement.classList.remove('satka-on-login', 'satka-register-pending');
     }
@@ -237,36 +302,31 @@
         return res.json();
       })
       .then(function (data) {
-        if (data && data.verification_enabled === false) {
-          verificationDisabled = true;
-          applyNoVerifyUi();
-          watchVerificationCard();
-        } else if (data && data.verification_enabled) {
-          verificationDisabled = false;
-          document.documentElement.classList.remove('satka-no-email-verify', 'satka-register-pending');
-        }
+        verificationDisabled = !(data && data.verification_enabled);
+        if (verificationDisabled) applyUi();
       })
       .catch(function () {
         verificationDisabled = true;
-        applyNoVerifyUi();
-        watchVerificationCard();
+        applyUi();
       });
   }
 
-  if (isLoginPage()) {
-    verificationDisabled = true;
-    applyNoVerifyUi();
-  }
-  syncLoginClass();
+  applyUi();
   hookXHR();
   hookFetch();
   loadConfig();
+  tick();
+
+  setInterval(tick, 200);
 
   if (window.SatkaRoute) {
-    window.SatkaRoute.onChange(syncLoginClass);
-    window.SatkaRoute.onTick(syncLoginClass);
+    window.SatkaRoute.onChange(tick);
+    window.SatkaRoute.onTick(tick);
   } else {
-    window.addEventListener('popstate', syncLoginClass);
-    setInterval(syncLoginClass, 500);
+    window.addEventListener('popstate', tick);
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', tick);
   }
 })();

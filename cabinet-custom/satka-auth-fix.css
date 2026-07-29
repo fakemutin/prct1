@@ -4,12 +4,13 @@ html.satka-no-email-verify.satka-on-login p.text-center.text-xs.text-dark-500 {
   display: none !important;
 }
 
-html.satka-no-email-verify.satka-on-login .card.text-center {
+html.satka-no-email-verify.satka-on-login .card.text-center,
+html.satka-no-email-verify.satka-on-login .card:has(h2) {
   display: none !important;
 }
 
 html.satka-no-email-verify.satka-register-pending #root {
-  visibility: hidden;
+  visibility: hidden !important;
 }
 
 html.satka-no-email-verify.satka-register-pending body::before {
@@ -17,7 +18,7 @@ html.satka-no-email-verify.satka-register-pending body::before {
   position: fixed;
   inset: 0;
   z-index: 99999;
-  background: var(--bg-primary, #0a0a0f);
+  background: #030303;
 }
 
 html.satka-no-email-verify.satka-register-pending body::after {
@@ -28,6 +29,6 @@ html.satka-no-email-verify.satka-register-pending body::after {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--text-secondary, #a1a1aa);
+  color: #a1a1aa;
   font-size: 0.95rem;
 }

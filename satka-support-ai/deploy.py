@@ -58,6 +58,7 @@ def main() -> int:
     parser.add_argument("--env-file", default=os.environ.get("ENV_FILE", ""), help="Local .env to upload")
     parser.add_argument("--llm-key", default=os.environ.get("LLM_API_KEY", ""), help="Update LLM_API_KEY on server")
     parser.add_argument("--llm-model", default=os.environ.get("LLM_MODEL", ""), help="Update LLM_MODEL on server")
+    parser.add_argument("--llm-base-url", default=os.environ.get("LLM_BASE_URL", ""), help="Update LLM_BASE_URL on server")
     args = parser.parse_args()
 
     if not args.password:
@@ -112,6 +113,17 @@ def main() -> int:
                 f"echo 'LLM_MODEL={model}' >> {REMOTE_DIR}/.env",
             )
             print("Updated LLM_MODEL on server")
+
+        if args.llm_base_url:
+            url = args.llm_base_url.replace("'", "'\\''")
+            run_remote(
+                client,
+                f"test -f {REMOTE_DIR}/.env || cp {REMOTE_DIR}/.env.example {REMOTE_DIR}/.env; "
+                f"grep -q '^LLM_BASE_URL=' {REMOTE_DIR}/.env && "
+                f"sed -i 's|^LLM_BASE_URL=.*|LLM_BASE_URL={url}|' {REMOTE_DIR}/.env || "
+                f"echo 'LLM_BASE_URL={url}' >> {REMOTE_DIR}/.env",
+            )
+            print("Updated LLM_BASE_URL on server")
 
         code, out, err = run_remote(
             client,

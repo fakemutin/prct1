@@ -1,0 +1,76 @@
+/* Referral program — neutral stat styling */
+
+html.satka-on-referral .satka-referral-terms-grid {
+  display: grid !important;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  gap: 0.75rem !important;
+  align-items: stretch !important;
+}
+
+@media (min-width: 768px) {
+  html.satka-on-referral .satka-referral-terms-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+  }
+}
+
+html.satka-on-referral .satka-referral-terms-grid > div {
+  min-height: 7.25rem;
+  height: 100%;
+  background: var(--satka-surface, rgba(255, 255, 255, 0.04)) !important;
+  border: 1px solid var(--satka-border, rgba(255, 255, 255, 0.1)) !important;
+  border-radius: 0.85rem !important;
+  padding: 0.85rem !important;
+}
+
+html.satka-on-referral .satka-referral-terms-grid p,
+html.satka-on-referral .satka-referral-terms-grid span,
+html.satka-on-referral .satka-referral-terms-grid div {
+  color: inherit;
+}
+
+html.satka-on-referral .satka-referral-terms-grid [class*='text-green'],
+html.satka-on-referral .satka-referral-terms-grid [class*='text-emerald'],
+html.satka-on-referral .satka-referral-terms-grid [class*='text-lime'] {
+  color: var(--satka-text-strong, #fff) !important;
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  font-size: 1.35rem !important;
+  font-weight: 800 !important;
+  line-height: 1.1 !important;
+}
+
+html.satka-on-referral .satka-referral-terms-grid .line-clamp-2,
+html.satka-on-referral .satka-referral-terms-grid [class*='text-dark-400'],
+html.satka-on-referral .satka-referral-terms-grid [class*='text-dark-500'] {
+  color: var(--satka-text-muted, #9a9a9a) !important;
+  font-size: 0.72rem !important;
+  font-weight: 600 !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.04em !important;
+}
+
+html.satka-on-referral .satka-referral-terms-card h2 {
+  margin-bottom: 1rem !important;
+  color: var(--satka-text-strong) !important;
+}
+
+html.satka-on-referral .satka-referral-terms-grid .line-clamp-2 {
+  min-height: 2.5rem;
+  display: flex;
+  align-items: flex-end;
+}
+
+/* Balance card on referral page */
+html.satka-on-referral #root .bento-card [class*='from-green'],
+html.satka-on-referral #root .bento-card [class*='to-green'],
+html.satka-on-referral #root .bento-card [class*='from-emerald'],
+html.satka-on-referral #root .bento-card [class*='to-emerald'] {
+  background: var(--satka-surface) !important;
+  border: 1px solid var(--satka-border) !important;
+}
+
+html[data-satka-theme='light'].satka-on-referral .satka-referral-terms-grid > div {
+  background: #ffffff !important;
+  box-shadow: 0 1px 3px var(--satka-shadow) !important;
+}

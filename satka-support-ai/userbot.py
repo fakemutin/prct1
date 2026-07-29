@@ -42,7 +42,6 @@ class SupportUserbot:
         self._me_id: int | None = None
         self._ai_sent_ids: set[int] = set()
         self._human_chats_until: dict[int, float] = {}
-        self._global_ai_paused_until: float = 0.0
         self._ai_enabled: bool = settings.ai_globally_enabled
 
     def _session(self, user_id: int) -> UserSession:
@@ -51,21 +50,13 @@ class SupportUserbot:
     def _chat_is_human(self, chat_id: int) -> bool:
         if not self._ai_enabled:
             return True
-        if time.time() < self._global_ai_paused_until:
-            return True
         return self._human_chats_until.get(chat_id, 0) > time.time()
 
     def _mark_human_chat(self, chat_id: int) -> None:
+        if self._me_id and chat_id == self._me_id:
+            return
         self._human_chats_until[chat_id] = time.time() + self.settings.human_takeover_sec
-        if self.settings.global_pause_on_manual_sec > 0:
-            self._global_ai_paused_until = time.time() + self.settings.global_pause_on_manual_sec
-            logger.info(
-                "Operator replied in chat %s — AI paused globally for %ss",
-                chat_id,
-                self.settings.global_pause_on_manual_sec,
-            )
-        else:
-            logger.info("Operator replied in chat %s — AI paused for this chat", chat_id)
+        logger.info("Operator replied in chat %s — AI paused for this chat only", chat_id)
 
     def _track_ai_message(self, message_id: int) -> None:
         self._ai_sent_ids.add(message_id)
@@ -158,17 +149,21 @@ class SupportUserbot:
         # Operator control commands (from support account, e.g. Saved Messages)
         if low == "/ai off":
             self._ai_enabled = False
-            self._global_ai_paused_until = time.time() + 10 * 365 * 86400
             logger.info("AI disabled globally by operator")
             return
         if low == "/ai on":
             self._ai_enabled = True
-            self._global_ai_paused_until = 0
             self._human_chats_until.clear()
             logger.info("AI enabled globally by operator")
             return
+        if low in {"/ai resume", "/ai reset"}:
+            self._human_chats_until.clear()
+            logger.info("All per-chat AI pauses cleared by operator")
+            if event.is_private and event.chat_id == self._me_id:
+                await event.respond("AI снова отвечает всем клиентам (кроме чатов, где вы писали вручную).")
+            return
         if low == "/ai status":
-            paused = not self._ai_enabled or time.time() < self._global_ai_paused_until
+            paused = not self._ai_enabled
             await event.edit(
                 f"AI: {'ВЫКЛ' if paused else 'ВКЛ'}\n"
                 f"Чатов на паузе: {sum(1 for t in self._human_chats_until.values() if t > time.time())}"
@@ -333,12 +328,11 @@ async def run() -> None:
     bot.register_handlers()
 
     logger.info(
-        "Support userbot online as @%s (model=%s, admin=%s, human_pause=%ss, global_pause=%ss)",
+        "Support userbot online as @%s (model=%s, admin=%s, human_pause=%ss)",
         me.username,
         settings.llm_model,
         settings.admin_chat_id,
         settings.human_takeover_sec,
-        settings.global_pause_on_manual_sec,
     )
     await client.run_until_disconnected()
 

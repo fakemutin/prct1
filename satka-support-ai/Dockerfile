@@ -12,6 +12,6 @@ RUN apt-get update \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY config.py gemini_client.py prompts.py bot.py ./
+COPY config.py deepseek_client.py prompts.py bot.py ./
 
 CMD ["python", "-u", "bot.py"]

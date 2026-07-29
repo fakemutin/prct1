@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Satka VPN — Telegram support bot powered by Gemini Flash."""
+"""Satka VPN — Telegram support bot powered by DeepSeek."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from telegram.constants import ParseMode
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 
 from config import Settings
-from gemini_client import GeminiSupportClient, user_requests_operator
+from deepseek_client import DeepSeekSupportClient, user_requests_operator
 
 logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -33,7 +33,7 @@ class UserSession:
 class SupportBot:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
-        self.gemini = GeminiSupportClient(settings)
+        self.ai = DeepSeekSupportClient(settings)
         self.alert_bot = Bot(token=settings.alert_bot_token)
         self.sessions: dict[int, UserSession] = defaultdict(UserSession)
         self._escalation_cooldown_sec = 300
@@ -172,7 +172,7 @@ class SupportBot:
         await context.bot.send_chat_action(chat_id=chat.id, action="typing")
 
         history = [{"role": t["role"], "text": t["text"]} for t in session.history]
-        ai = self.gemini.reply(
+        ai = self.ai.reply(
             text,
             history=history,
             username=user.username,
@@ -221,7 +221,7 @@ def main() -> None:
 
     logger.info(
         "Starting Satka Support AI (model=%s, admin=%s)",
-        settings.gemini_model,
+        settings.deepseek_model,
         settings.admin_chat_id,
     )
     app.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)

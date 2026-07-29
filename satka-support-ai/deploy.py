@@ -27,7 +27,7 @@ def pack_source(tmp_path: Path) -> Path:
     files = [
         "bot.py",
         "config.py",
-        "gemini_client.py",
+        "deepseek_client.py",
         "prompts.py",
         "requirements.txt",
         "Dockerfile",

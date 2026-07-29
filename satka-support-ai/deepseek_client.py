@@ -1,4 +1,4 @@
-"""Gemini Flash client with Satka support prompt."""
+"""DeepSeek client with Satka support prompt."""
 
 from __future__ import annotations
 
@@ -6,10 +6,8 @@ import json
 import logging
 import re
 from dataclasses import dataclass
-from typing import Any
 
-from google import genai
-from google.genai import types
+from openai import OpenAI
 
 from config import Settings
 from prompts import SYSTEM_PROMPT, build_user_context
@@ -45,18 +43,26 @@ def _parse_meta(raw: str) -> tuple[str, bool, str]:
     return visible, escalate, confidence
 
 
-class GeminiSupportClient:
+class DeepSeekSupportClient:
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
-        self._client = genai.Client(api_key=settings.gemini_api_key)
+        self._client = OpenAI(
+            api_key=settings.deepseek_api_key,
+            base_url=settings.deepseek_base_url,
+        )
 
-    def _contents(self, history: list[dict[str, str]], user_message: str, user_ctx: str) -> list[types.Content]:
-        contents: list[types.Content] = []
+    def _messages(
+        self,
+        history: list[dict[str, str]],
+        user_message: str,
+        user_ctx: str,
+    ) -> list[dict[str, str]]:
+        messages: list[dict[str, str]] = [{"role": "system", "content": SYSTEM_PROMPT}]
         for turn in history[-self._settings.max_history_turns :]:
-            role = "user" if turn["role"] == "user" else "model"
-            contents.append(types.Content(role=role, parts=[types.Part(text=turn["text"])]))
-        contents.append(types.Content(role="user", parts=[types.Part(text=f"{user_ctx}\n\n{user_message}")]))
-        return contents
+            role = "user" if turn["role"] == "user" else "assistant"
+            messages.append({"role": role, "content": turn["text"]})
+        messages.append({"role": "user", "content": f"{user_ctx}\n\n{user_message}"})
+        return messages
 
     def reply(
         self,
@@ -68,28 +74,18 @@ class GeminiSupportClient:
         display_name: str | None,
     ) -> AiReply:
         user_ctx = build_user_context(username, user_id, display_name)
-        config = types.GenerateContentConfig(
-            system_instruction=SYSTEM_PROMPT,
-            temperature=0.35,
-            top_p=0.9,
-            max_output_tokens=900,
-            safety_settings=[
-                types.SafetySetting(category="HARM_CATEGORY_HARASSMENT", threshold="BLOCK_ONLY_HIGH"),
-                types.SafetySetting(category="HARM_CATEGORY_HATE_SPEECH", threshold="BLOCK_ONLY_HIGH"),
-                types.SafetySetting(category="HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold="BLOCK_ONLY_HIGH"),
-                types.SafetySetting(category="HARM_CATEGORY_DANGEROUS_CONTENT", threshold="BLOCK_ONLY_HIGH"),
-            ],
-        )
 
         try:
-            response = self._client.models.generate_content(
-                model=self._settings.gemini_model,
-                contents=self._contents(history, user_message, user_ctx),
-                config=config,
+            response = self._client.chat.completions.create(
+                model=self._settings.deepseek_model,
+                messages=self._messages(history, user_message, user_ctx),
+                temperature=0.35,
+                top_p=0.9,
+                max_tokens=900,
             )
-            raw = (response.text or "").strip()
+            raw = (response.choices[0].message.content or "").strip()
         except Exception as exc:
-            logger.exception("Gemini API error")
+            logger.exception("DeepSeek API error")
             return AiReply(
                 text=(
                     "Сейчас не могу обработать запрос — техсбой на стороне ассистента. "

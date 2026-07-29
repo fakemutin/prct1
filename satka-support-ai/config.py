@@ -17,21 +17,15 @@ def _env_int(name: str, default: int) -> int:
     return int(raw)
 
 
-def _env_bool(name: str, default: bool = False) -> bool:
-    raw = _env(name).lower()
-    if not raw:
-        return default
-    return raw in {"1", "true", "yes", "on"}
-
-
 @dataclass(frozen=True)
 class Settings:
     support_bot_token: str
     alert_bot_token: str
-    gemini_api_key: str
+    deepseek_api_key: str
+    deepseek_base_url: str
     admin_chat_id: int
     admin_username: str
-    gemini_model: str
+    deepseek_model: str
     max_history_turns: int
     alert_repeat_count: int
     alert_repeat_delay_sec: float
@@ -42,7 +36,7 @@ class Settings:
     def from_env(cls) -> "Settings":
         support_token = _env("SUPPORT_AI_BOT_TOKEN")
         alert_token = _env("ALERT_BOT_TOKEN") or support_token
-        gemini_key = _env("GEMINI_API_KEY")
+        deepseek_key = _env("DEEPSEEK_API_KEY") or _env("GEMINI_API_KEY")
 
         allowed_raw = _env("ALLOWED_CHAT_IDS")
         allowed: set[int] | None = None
@@ -52,10 +46,11 @@ class Settings:
         return cls(
             support_bot_token=support_token,
             alert_bot_token=alert_token,
-            gemini_api_key=gemini_key,
+            deepseek_api_key=deepseek_key,
+            deepseek_base_url=_env("DEEPSEEK_BASE_URL", "https://api.deepseek.com"),
             admin_chat_id=_env_int("ADMIN_CHAT_ID", 8505786243),
             admin_username=_env("ADMIN_USERNAME", "hustlehapp"),
-            gemini_model=_env("GEMINI_MODEL", "gemini-2.0-flash"),
+            deepseek_model=_env("DEEPSEEK_MODEL", "deepseek-chat"),
             max_history_turns=_env_int("MAX_HISTORY_TURNS", 12),
             alert_repeat_count=_env_int("ALERT_REPEAT_COUNT", 3),
             alert_repeat_delay_sec=float(_env("ALERT_REPEAT_DELAY_SEC", "1.2")),
@@ -67,7 +62,7 @@ class Settings:
         missing = []
         if not self.support_bot_token:
             missing.append("SUPPORT_AI_BOT_TOKEN")
-        if not self.gemini_api_key:
-            missing.append("GEMINI_API_KEY")
+        if not self.deepseek_api_key:
+            missing.append("DEEPSEEK_API_KEY")
         if missing:
             raise RuntimeError("Missing required env: " + ", ".join(missing))

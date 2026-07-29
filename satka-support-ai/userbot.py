@@ -16,6 +16,7 @@ from telethon.tl.types import User
 
 from config import Settings
 from llm_client import LlmSupportClient, user_requests_operator
+from message_filters import classify_message
 
 logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -232,6 +233,13 @@ class SupportUserbot:
             return
 
         operator_requested = user_requests_operator(text)
+
+        filter_kind, filter_reply = classify_message(text)
+        if filter_kind in {"manipulation", "off_topic"} and filter_reply:
+            logger.info("Filtered %s message from user %s", filter_kind, user_id)
+            await self._reply(event, filter_reply)
+            return
+
         if operator_requested:
             await self._reply(
                 event,

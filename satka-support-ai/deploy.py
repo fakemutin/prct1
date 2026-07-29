@@ -29,6 +29,7 @@ def pack_source(tmp_path: Path) -> Path:
         "userbot.py",
         "config.py",
         "llm_client.py",
+        "message_filters.py",
         "prompts.py",
         "requirements.txt",
         "Dockerfile",

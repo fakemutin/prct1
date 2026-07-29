@@ -1,5 +1,0 @@
-/* Hide "verification email will be sent" hint on register tab */
-
-html.satka-no-email-verify p.text-center.text-xs.text-dark-500 {
-  display: none !important;
-}

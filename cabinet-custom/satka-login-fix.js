@@ -9,6 +9,7 @@
 
   var API = '/api/cabinet/auth/deeplink';
   var POLL_MS = 2000;
+  var mounted = false;
 
   function isLoginPage() {
     return /\/login\/?$/i.test(window.location.pathname);
@@ -34,13 +35,12 @@
 
   function hideTelegramWidget() {
     document.querySelectorAll('script[data-telegram-login]').forEach(function (s) {
-      s.style.display = 'none';
+      var box = s.parentElement;
+      if (box) box.style.display = 'none';
     });
     document.querySelectorAll('iframe[src*="oauth.telegram.org"], iframe[src*="telegram.org"]').forEach(function (f) {
-      f.style.display = 'none';
-      f.style.visibility = 'hidden';
-      f.style.width = '0';
-      f.style.height = '0';
+      var box = f.closest('div');
+      if (box) box.style.display = 'none';
     });
   }
 
@@ -135,56 +135,57 @@
   }
 
   function mount() {
-    if (!isLoginPage()) return;
-    if (document.querySelector('.satka-deeplink-login')) return;
-
+    if (mounted || !isLoginPage()) return true;
     var appRoot = document.getElementById('root');
-    if (!appRoot || !appRoot.children.length) return;
-
-    var main = appRoot.querySelector('main') || appRoot.querySelector('[role="main"]') || appRoot.firstElementChild;
-    if (!main) return;
-
-    var target = main.querySelector('.card') || main.querySelector('form');
-    if (!target || !target.parentNode) return;
-
+    if (!appRoot || !appRoot.children.length) return false;
+    mounted = true;
     hideTelegramWidget();
-
     fetch(API + '/request', { method: 'POST', headers: { 'Content-Type': 'application/json' } })
       .then(function (res) {
         return res.json();
       })
       .then(function (data) {
         if (!data || !data.token || !data.bot_username) return;
-        if (document.querySelector('.satka-deeplink-login')) return;
         var block = buildBlock(data);
-        target.parentNode.insertBefore(block, target);
+        var main =
+          appRoot.querySelector('main') || appRoot.querySelector('[role="main"]') || appRoot.firstElementChild;
+        if (!main) return;
+        var card = main.querySelector('form') || main.querySelector('.rounded-linear') || main.firstElementChild;
+        if (card && card.parentNode) card.parentNode.insertBefore(block, card);
+        else main.insertBefore(block, main.firstChild);
         hideTelegramWidget();
+        setInterval(hideTelegramWidget, 800);
         pollLogin(data.token, block.querySelector('.satka-deeplink-wait'), applyTokens);
       })
       .catch(function () {});
+    return true;
   }
 
-  function tick() {
-    if (!isLoginPage()) {
-      document.querySelectorAll('.satka-deeplink-login').forEach(function (el) {
-        el.remove();
-      });
-      return;
-    }
-    hideTelegramWidget();
+  function remount() {
+    mounted = false;
+    document.querySelectorAll('.satka-deeplink-login').forEach(function (el) {
+      el.remove();
+    });
     mount();
   }
 
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', tick);
-  else tick();
-
-  if (window.SatkaRoute) {
-    window.SatkaRoute.onTick(tick);
-    window.SatkaRoute.onChange(tick);
-  } else {
-    setInterval(tick, 500);
+  function watch() {
+    if (!isLoginPage()) return;
+    if (mount()) return;
+    var obs = new MutationObserver(function () {
+      if (mount()) obs.disconnect();
+    });
+    var root = document.getElementById('root');
+    if (root) obs.observe(root, { childList: true, subtree: true });
+    setTimeout(function () {
+      obs.disconnect();
+      mount();
+    }, 15000);
   }
 
-  window.addEventListener('satka-language-changed', tick);
-  if (window.SatkaI18n) window.SatkaI18n.onChange(tick);
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', watch);
+  else watch();
+
+  window.addEventListener('satka-language-changed', remount);
+  if (window.SatkaI18n) window.SatkaI18n.onChange(remount);
 })();

@@ -46,6 +46,9 @@ class SupportUserbot:
         self._ai_sent_ids: set[int] = set()
         self._human_chats_until: dict[int, float] = {}
         self._ai_enabled: bool = settings.ai_globally_enabled
+        self._chat_locks: dict[int, asyncio.Lock] = defaultdict(asyncio.Lock)
+        self._llm_sem = asyncio.Semaphore(settings.max_concurrent_replies)
+        self._active_tasks: set[asyncio.Task] = set()
 
     def _session(self, user_id: int) -> UserSession:
         return self.sessions[user_id]
@@ -321,14 +324,15 @@ class SupportUserbot:
 
         async with self.client.action(event.chat_id, "typing"):
             history = [{"role": t["role"], "text": t["text"]} for t in session.history]
-            ai = await asyncio.to_thread(
-                self.ai.reply,
-                text,
-                history=history,
-                username=username,
-                user_id=user_id,
-                display_name=display_name,
-            )
+            async with self._llm_sem:
+                ai = await asyncio.to_thread(
+                    self.ai.reply,
+                    text,
+                    history=history,
+                    username=username,
+                    user_id=user_id,
+                    display_name=display_name,
+                )
 
         if self._chat_is_human(event.chat_id):
             return
@@ -361,13 +365,23 @@ class SupportUserbot:
                 force=operator_requested,
             )
 
-    def register_handlers(self) -> None:
-        @self.client.on(events.NewMessage(incoming=True))
-        async def on_incoming(event: events.NewMessage.Event) -> None:
+    async def _handle_message_safe(self, event: events.NewMessage.Event) -> None:
+        chat_id = event.chat_id
+        async with self._chat_locks[chat_id]:
             try:
                 await self.handle_message(event)
             except Exception:
-                logger.exception("Handler error for chat %s", event.chat_id)
+                logger.exception("Handler error for chat %s", chat_id)
+
+    def _spawn_task(self, coro) -> None:
+        task = asyncio.create_task(coro)
+        self._active_tasks.add(task)
+        task.add_done_callback(self._active_tasks.discard)
+
+    def register_handlers(self) -> None:
+        @self.client.on(events.NewMessage(incoming=True))
+        async def on_incoming(event: events.NewMessage.Event) -> None:
+            self._spawn_task(self._handle_message_safe(event))
 
         @self.client.on(events.NewMessage(outgoing=True))
         async def on_outgoing(event: events.NewMessage.Event) -> None:
@@ -395,11 +409,10 @@ async def run() -> None:
     bot.register_handlers()
 
     logger.info(
-        "Support userbot online as @%s (model=%s, admin=%s, human_pause=%ss)",
+        "Support userbot online as @%s (model=%s, concurrent=%s)",
         me.username,
         settings.llm_model,
-        settings.admin_chat_id,
-        settings.human_takeover_sec,
+        settings.max_concurrent_replies,
     )
     await client.run_until_disconnected()
 

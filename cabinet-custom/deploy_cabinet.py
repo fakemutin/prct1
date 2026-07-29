@@ -83,8 +83,7 @@ def main() -> int:
             print('uploaded cabinet-compose.yml')
         upload_files(client)
         run(client, COMPOSE_CMD)
-        run(client, 'curl -s http://127.0.0.1/satka-auth-fix.js?v=2 | wc -c')
-        run(client, "grep -o 'satka-auth-fix[^\"]*' /opt/bedolaga/cabinet-custom/index.html | head -2")
+        run(client, 'grep -o "satka-login-fix[^\\"]*" /opt/bedolaga/cabinet-custom/index.html | head -1')
     finally:
         client.close()
     return 0

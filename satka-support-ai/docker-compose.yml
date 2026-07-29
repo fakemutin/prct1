@@ -1,0 +1,12 @@
+services:
+  satka-support-ai:
+    build: .
+    container_name: satka_support_ai
+    restart: unless-stopped
+    env_file:
+      - .env
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

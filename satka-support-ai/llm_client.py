@@ -10,7 +10,7 @@ from dataclasses import dataclass
 
 from openai import APIStatusError, OpenAI
 
-from canned_responses import CONNECT_REPLY, match_canned
+from canned_responses import BUSY_REPLY, match_canned
 from config import Settings
 from message_filters import OFF_TOPIC_REPLY
 from prompts import SYSTEM_PROMPT, build_user_context
@@ -150,7 +150,7 @@ class LlmSupportClient:
                 fallback = match_canned(user_message)
                 if fallback:
                     return AiReply(text=fallback, escalate=False, confidence="high", raw=str(exc), api_error=False)
-                return AiReply(text=CONNECT_REPLY, escalate=False, confidence="medium", raw=str(exc), api_error=False)
+                return AiReply(text=BUSY_REPLY, escalate=False, confidence="medium", raw=str(exc), api_error=False)
             return AiReply(
                 text=_user_facing_error(exc),
                 escalate=False,

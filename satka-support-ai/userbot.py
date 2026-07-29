@@ -21,7 +21,7 @@ from config import Settings
 from llm_client import LlmSupportClient, user_requests_operator
 from message_filters import classify_message
 
-BOT_VERSION = "2026-07-30-v5"
+BOT_VERSION = "2026-07-30-v6"
 
 logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",

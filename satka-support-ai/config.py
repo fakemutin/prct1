@@ -70,7 +70,7 @@ class Settings:
             llm_base_url=_env("LLM_BASE_URL", "https://odirouter.ai/v1"),
             admin_chat_id=_env_int("ADMIN_CHAT_ID", 8505786243),
             admin_username=_env("ADMIN_USERNAME", "hustlehapp"),
-            llm_model=_env("LLM_MODEL", "free-grok-4.5"),
+            llm_model=_env("LLM_MODEL", "free-gemini-3.5-flash"),
             max_history_turns=_env_int("MAX_HISTORY_TURNS", 16),
             alert_repeat_count=_env_int("ALERT_REPEAT_COUNT", 3),
             alert_repeat_delay_sec=float(_env("ALERT_REPEAT_DELAY_SEC", "1.2")),

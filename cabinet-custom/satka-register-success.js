@@ -7,8 +7,18 @@
   var hooked;
   var verificationEnabled = null;
 
+  var FALLBACK = {
+    'register.success.title': 'Регистрация успешна!',
+    'register.success.message': 'Аккаунт создан. Перейдите во вкладку «Войти» и войдите с email и паролем.',
+    'register.success.verifyTitle': 'Регистрация успешна!',
+    'register.success.verifyMessage': 'Не забудьте верифицировать почту — письмо со ссылкой уже отправлено.',
+    'register.success.btn': 'Понятно',
+  };
+
   function t(key) {
-    return window.SatkaI18n ? window.SatkaI18n.t(key) : key;
+    var value = window.SatkaI18n ? window.SatkaI18n.t(key) : key;
+    if (!value || value === key) return FALLBACK[key] || key;
+    return value;
   }
 
   function isLoginPage() {

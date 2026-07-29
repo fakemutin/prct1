@@ -5,6 +5,8 @@
   var API_REGISTER = '/cabinet/auth/email/register/standalone';
   var CSRF_COOKIE = 'csrf_token';
   var CSRF_HEADER = 'X-CSRF-Token';
+  var STORE_KEY = 'satka_pending_register';
+  var loginInFlight = false;
 
   function parseJson(text) {
     try {
@@ -12,6 +14,27 @@
     } catch (e) {
       return null;
     }
+  }
+
+  function saveCredentials(credentials) {
+    if (!credentials || !credentials.email || !credentials.password) return;
+    try {
+      sessionStorage.setItem(STORE_KEY, JSON.stringify({ email: credentials.email, password: credentials.password }));
+    } catch (e) {}
+  }
+
+  function loadCredentials() {
+    try {
+      return JSON.parse(sessionStorage.getItem(STORE_KEY) || 'null');
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function clearCredentials() {
+    try {
+      sessionStorage.removeItem(STORE_KEY);
+    } catch (e) {}
   }
 
   function ensureCsrfToken() {
@@ -40,22 +63,6 @@
     return true;
   }
 
-  function isCheckEmailCard(card) {
-    if (!card || !card.classList || !card.classList.contains('text-center')) return false;
-    var h2 = card.querySelector('h2');
-    if (!h2) return false;
-    var t = (h2.textContent || '').toLowerCase();
-    return t.indexOf('проверьте') !== -1 || t.indexOf('check your email') !== -1;
-  }
-
-  function hideCheckEmailCard() {
-    var root = document.getElementById('root');
-    if (!root) return;
-    root.querySelectorAll('.card.text-center').forEach(function (card) {
-      if (isCheckEmailCard(card)) card.style.setProperty('display', 'none', 'important');
-    });
-  }
-
   function autoLogin(email, password) {
     var headers = { 'Content-Type': 'application/json', Accept: 'application/json' };
     var csrf = ensureCsrfToken();
@@ -65,19 +72,72 @@
       credentials: 'include',
       headers: headers,
       body: JSON.stringify({ email: email, password: password }),
-    }).then(function (res) {
-      return res.ok ? res.json() : null;
-    }).catch(function () {
-      return null;
-    });
+    })
+      .then(function (res) {
+        return res.ok ? res.json() : null;
+      })
+      .catch(function () {
+        return null;
+      });
+  }
+
+  function findCheckEmailCard() {
+    var root = document.getElementById('root');
+    if (!root) return null;
+    var cards = root.querySelectorAll('.card.text-center');
+    for (var i = 0; i < cards.length; i++) {
+      var h2 = cards[i].querySelector('h2');
+      if (!h2) continue;
+      var t = (h2.textContent || '').toLowerCase();
+      if (t.indexOf('проверьте') !== -1 || t.indexOf('check your email') !== -1) return cards[i];
+    }
+    return null;
+  }
+
+  function resetToLoginForm() {
+    var card = findCheckEmailCard();
+    if (!card) return;
+    var btn = card.querySelector('button');
+    if (btn) btn.click();
+  }
+
+  function completeLogin(credentials) {
+    if (!credentials || loginInFlight) return;
+    loginInFlight = true;
+
+    function attempt(n) {
+      autoLogin(credentials.email, credentials.password).then(function (auth) {
+        if (setTokens(auth)) {
+          clearCredentials();
+          window.location.replace('/');
+          return;
+        }
+        if (n < 5) {
+          setTimeout(function () {
+            attempt(n + 1);
+          }, 350);
+          return;
+        }
+        loginInFlight = false;
+        resetToLoginForm();
+      });
+    }
+
+    attempt(0);
   }
 
   function afterRegister(credentials) {
-    if (!credentials || !credentials.email || !credentials.password) return;
-    hideCheckEmailCard();
-    autoLogin(credentials.email, credentials.password).then(function (auth) {
-      if (setTokens(auth)) window.location.replace('/');
-    });
+    credentials = credentials || loadCredentials();
+    if (!credentials) return;
+    saveCredentials(credentials);
+    completeLogin(credentials);
+  }
+
+  function recoverCheckEmailScreen() {
+    if (!findCheckEmailCard()) return;
+    var creds = loadCredentials();
+    if (creds) completeLogin(creds);
+    else resetToLoginForm();
   }
 
   function hookXHR() {
@@ -97,14 +157,15 @@
       var url = xhr._satkaUrl || '';
       var isRegister =
         url.indexOf(API_REGISTER) !== -1 && String(xhr._satkaMethod || 'GET').toUpperCase() === 'POST';
-      var credentials = isRegister && body ? parseJson(body) : null;
+      var credentials = isRegister && typeof body === 'string' ? parseJson(body) : null;
+      if (credentials) saveCredentials(credentials);
 
       if (isRegister) {
         xhr.addEventListener('load', function () {
           if (xhr.status < 200 || xhr.status >= 300) return;
           var res = parseJson(xhr.responseText);
           if (!res || res.requires_verification === true) return;
-          afterRegister(credentials);
+          afterRegister(credentials || loadCredentials());
         });
       }
       return origSend.apply(this, arguments);
@@ -120,31 +181,40 @@
       var isRegister = url && url.indexOf(API_REGISTER) !== -1;
       var credentials =
         isRegister && init && init.body && typeof init.body === 'string' ? parseJson(init.body) : null;
+      if (credentials) saveCredentials(credentials);
       return orig.apply(this, arguments).then(function (res) {
         if (!isRegister || !res.ok) return res;
-        return res.clone().json().then(function (body) {
-          if (body && body.requires_verification !== true) afterRegister(credentials);
-          return res;
-        }).catch(function () {
-          return res;
-        });
+        return res
+          .clone()
+          .json()
+          .then(function (body) {
+            if (body && body.requires_verification !== true) afterRegister(credentials || loadCredentials());
+            return res;
+          })
+          .catch(function () {
+            return res;
+          });
       });
     };
   }
 
-  function watchVerifyCard() {
-    hideCheckEmailCard();
+  function watchCheckEmailScreen() {
+    recoverCheckEmailScreen();
     var root = document.getElementById('root');
-    if (!root || window.__satkaAuthCardObserver) return;
-    window.__satkaAuthCardObserver = new MutationObserver(hideCheckEmailCard);
-    window.__satkaAuthCardObserver.observe(root, { childList: true, subtree: true });
+    if (!root || window.__satkaAuthVerifyObserver) return;
+    window.__satkaAuthVerifyObserver = new MutationObserver(function () {
+      recoverCheckEmailScreen();
+    });
+    window.__satkaAuthVerifyObserver.observe(root, { childList: true, subtree: true });
   }
 
   document.documentElement.classList.add('satka-no-email-verify');
   hookXHR();
   hookFetch();
-  watchVerifyCard();
+  watchCheckEmailScreen();
+  setInterval(recoverCheckEmailScreen, 400);
+
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', watchVerifyCard);
+    document.addEventListener('DOMContentLoaded', watchCheckEmailScreen);
   }
 })();

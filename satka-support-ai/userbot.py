@@ -256,7 +256,8 @@ class SupportUserbot:
             await self._reply(
                 event,
                 "Привет! Поддержка Satka VPN 🤍\n\n"
-                "Помогу с Happ, подпиской, оплатой и кабинетом.\n"
+                "Помогу с подключением, тарифами, Happ, оплатой, кабинетом, "
+                "скоростью, устройствами, рефералкой и любым вопросом по сервису.\n"
                 "Опишите проблему своими словами.\n\n"
                 "Нужен живой человек — напишите «Оператор».",
             )
@@ -265,7 +266,8 @@ class SupportUserbot:
         if low in {"/help", "help"}:
             await self._reply(
                 event,
-                "Satka VPN: Happ, подписка, оплата, кабинет.\n"
+                "Satka VPN — полная поддержка по сервису:\n"
+                "подключение, тарифы, Happ, оплата, кабинет, скорость, устройства, рефералка.\n"
                 "Бот: @satkavpn_bot · Кабинет: node.satkaconnect.xyz\n\n"
                 "Живой оператор: напишите «Оператор»",
             )
@@ -280,7 +282,7 @@ class SupportUserbot:
         operator_requested = user_requests_operator(text)
 
         filter_kind, filter_reply = classify_message(text)
-        if filter_kind in {"manipulation", "off_topic"} and filter_reply:
+        if filter_kind == "manipulation" and filter_reply:
             logger.info("Filtered %s message from user %s", filter_kind, user_id)
             await self._reply(event, filter_reply)
             return

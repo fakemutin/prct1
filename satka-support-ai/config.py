@@ -1,4 +1,4 @@
-"""Environment configuration for Satka Support AI bot."""
+"""Environment configuration for Satka Support AI userbot."""
 
 from __future__ import annotations
 
@@ -19,7 +19,11 @@ def _env_int(name: str, default: int) -> int:
 
 @dataclass(frozen=True)
 class Settings:
-    support_bot_token: str
+    telegram_api_id: int
+    telegram_api_hash: str
+    telegram_phone: str
+    telegram_2fa_password: str
+    session_path: str
     alert_bot_token: str
     deepseek_api_key: str
     deepseek_base_url: str
@@ -34,19 +38,25 @@ class Settings:
 
     @classmethod
     def from_env(cls) -> "Settings":
-        support_token = _env("SUPPORT_AI_BOT_TOKEN")
-        alert_token = _env("ALERT_BOT_TOKEN") or support_token
-        deepseek_key = _env("DEEPSEEK_API_KEY") or _env("GEMINI_API_KEY")
+        alert_token = _env("ALERT_BOT_TOKEN")
 
         allowed_raw = _env("ALLOWED_CHAT_IDS")
         allowed: set[int] | None = None
         if allowed_raw:
             allowed = {int(x.strip()) for x in allowed_raw.split(",") if x.strip()}
 
+        phone = _env("TELEGRAM_PHONE")
+        if phone and not phone.startswith("+"):
+            phone = "+" + phone.replace(" ", "").replace("-", "")
+
         return cls(
-            support_bot_token=support_token,
+            telegram_api_id=_env_int("TELEGRAM_API_ID", 2040),
+            telegram_api_hash=_env("TELEGRAM_API_HASH", "b18441a1ff607e10a989891a546e7e"),
+            telegram_phone=phone,
+            telegram_2fa_password=_env("TELEGRAM_2FA_PASSWORD"),
+            session_path=_env("SESSION_PATH", "sessions/support"),
             alert_bot_token=alert_token,
-            deepseek_api_key=deepseek_key,
+            deepseek_api_key=_env("DEEPSEEK_API_KEY"),
             deepseek_base_url=_env("DEEPSEEK_BASE_URL", "https://api.deepseek.com"),
             admin_chat_id=_env_int("ADMIN_CHAT_ID", 8505786243),
             admin_username=_env("ADMIN_USERNAME", "hustlehapp"),
@@ -60,9 +70,11 @@ class Settings:
 
     def validate(self) -> None:
         missing = []
-        if not self.support_bot_token:
-            missing.append("SUPPORT_AI_BOT_TOKEN")
+        if not self.telegram_phone:
+            missing.append("TELEGRAM_PHONE")
         if not self.deepseek_api_key:
             missing.append("DEEPSEEK_API_KEY")
+        if not self.alert_bot_token:
+            missing.append("ALERT_BOT_TOKEN")
         if missing:
             raise RuntimeError("Missing required env: " + ", ".join(missing))

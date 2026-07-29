@@ -5,6 +5,8 @@ services:
     restart: unless-stopped
     env_file:
       - .env
+    volumes:
+      - ./sessions:/app/sessions
     logging:
       driver: json-file
       options:

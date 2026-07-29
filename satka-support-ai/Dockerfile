@@ -12,6 +12,8 @@ RUN apt-get update \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY config.py deepseek_client.py prompts.py bot.py ./
+COPY config.py deepseek_client.py prompts.py auth_session.py userbot.py ./
 
-CMD ["python", "-u", "bot.py"]
+RUN mkdir -p sessions
+
+CMD ["python", "-u", "userbot.py"]

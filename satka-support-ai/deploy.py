@@ -25,7 +25,8 @@ REMOTE_DIR = "/opt/satka-support-ai"
 def pack_source(tmp_path: Path) -> Path:
     archive = tmp_path / "satka-support-ai.tar.gz"
     files = [
-        "bot.py",
+        "auth_session.py",
+        "userbot.py",
         "config.py",
         "deepseek_client.py",
         "prompts.py",

@@ -51,7 +51,7 @@ class Settings:
 
         return cls(
             telegram_api_id=_env_int("TELEGRAM_API_ID", 2040),
-            telegram_api_hash=_env("TELEGRAM_API_HASH", "b18441a1ff607e10a989891a546e7e"),
+            telegram_api_hash=_env("TELEGRAM_API_HASH", "b18441a1ff607e10a989891a5462e627"),
             telegram_phone=phone,
             telegram_2fa_password=_env("TELEGRAM_2FA_PASSWORD"),
             session_path=_env("SESSION_PATH", "sessions/support"),

@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 
 import httpx
 from telethon import TelegramClient, events
+from telethon.tl.functions.account import UpdateStatusRequest
 from telethon.tl.types import User
 
 from config import Settings
@@ -48,6 +49,14 @@ class SupportUserbot:
         self._chat_locks: dict[int, asyncio.Lock] = defaultdict(asyncio.Lock)
         self._llm_sem = asyncio.Semaphore(settings.max_concurrent_replies)
         self._active_tasks: set[asyncio.Task] = set()
+
+    async def _keep_online_loop(self) -> None:
+        while True:
+            try:
+                await self.client(UpdateStatusRequest(offline=False))
+            except Exception:
+                logger.debug("Online status update failed", exc_info=True)
+            await asyncio.sleep(self.settings.online_keepalive_sec)
 
     def _session(self, user_id: int) -> UserSession:
         return self.sessions[user_id]
@@ -388,11 +397,15 @@ async def run() -> None:
     bot._me_id = me.id
     bot.register_handlers()
 
+    await client(UpdateStatusRequest(offline=False))
+    asyncio.create_task(bot._keep_online_loop())
+
     logger.info(
-        "Support userbot online as @%s (model=%s, concurrent=%s)",
+        "Support userbot online as @%s (model=%s, concurrent=%s, keepalive=%ss)",
         me.username,
         settings.llm_model,
         settings.max_concurrent_replies,
+        settings.online_keepalive_sec,
     )
     await client.run_until_disconnected()
 

@@ -90,7 +90,7 @@ def main() -> int:
 
         code, out, err = run_remote(
             client,
-            f"cd {REMOTE_DIR} && docker compose build --pull && docker compose up -d",
+            f"cd {REMOTE_DIR} && docker compose build --pull && docker compose up -d --force-recreate",
         )
         print(out)
         if err:

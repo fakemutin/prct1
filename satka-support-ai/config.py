@@ -38,6 +38,7 @@ class Settings:
     ai_block_sec: int
     max_concurrent_replies: int
     ai_globally_enabled: bool
+    online_keepalive_sec: int
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -78,6 +79,7 @@ class Settings:
             ai_block_sec=_env_int("AI_BLOCK_SEC", 3600),
             max_concurrent_replies=_env_int("MAX_CONCURRENT_REPLIES", 12),
             ai_globally_enabled=_env("AI_GLOBALLY_ENABLED", "true").lower() in {"1", "true", "yes", "on"},
+            online_keepalive_sec=_env_int("ONLINE_KEEPALIVE_SEC", 180),
         )
 
     def validate(self) -> None:

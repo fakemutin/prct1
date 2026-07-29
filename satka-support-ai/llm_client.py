@@ -16,6 +16,23 @@ logger = logging.getLogger(__name__)
 
 META_RE = re.compile(r"SATKA_META:\s*(\{.*?\})\s*$", re.DOTALL | re.MULTILINE)
 
+# Узкие шаблонные отказы — если модель их выдала, делаем повторный запрос
+NARROW_REPLY_RE = re.compile(
+    r"("
+    r"помогаю\s+только\s+по\s+satka|"
+    r"помогаю\s+только\s+с\s+подписк|"
+    r"я\s+помогаю\s+только\s+по\s+satka|"
+    r"напишите,?\s+что\s+именно\s+не\s+работает\s+или\s+что\s+хотите\s+настроить"
+    r")",
+    re.IGNORECASE,
+)
+
+RETRY_NUDGE = (
+    "Стоп. Клиент задал нормальный вопрос — это НЕ отказная ситуация. "
+    "Ответь по существу: дружелюбно, развёрнуто, с конкретикой про Satka VPN. "
+    "Никаких фраз «помогаю только с подпиской/Happ/оплатой»."
+)
+
 
 @dataclass
 class AiReply:
@@ -42,6 +59,10 @@ def _parse_meta(raw: str) -> tuple[str, bool, str]:
     if confidence not in {"high", "medium", "low"}:
         confidence = "medium"
     return visible, escalate, confidence
+
+
+def _is_narrow_refusal(text: str) -> bool:
+    return bool(NARROW_REPLY_RE.search(text))
 
 
 def _user_facing_error(exc: Exception) -> str:
@@ -81,6 +102,16 @@ class LlmSupportClient:
         messages.append({"role": "user", "content": f"{user_ctx}\n\n{user_message}"})
         return messages
 
+    def _call_llm(self, messages: list[dict[str, str]]) -> str:
+        response = self._client.chat.completions.create(
+            model=self._settings.llm_model,
+            messages=messages,
+            temperature=0.6,
+            top_p=0.92,
+            max_tokens=1200,
+        )
+        return (response.choices[0].message.content or "").strip()
+
     def reply(
         self,
         user_message: str,
@@ -91,16 +122,21 @@ class LlmSupportClient:
         display_name: str | None,
     ) -> AiReply:
         user_ctx = build_user_context(username, user_id, display_name)
+        messages = self._messages(history, user_message, user_ctx)
 
         try:
-            response = self._client.chat.completions.create(
-                model=self._settings.llm_model,
-                messages=self._messages(history, user_message, user_ctx),
-                temperature=0.55,
-                top_p=0.92,
-                max_tokens=1000,
-            )
-            raw = (response.choices[0].message.content or "").strip()
+            raw = self._call_llm(messages)
+            text, escalate, confidence = _parse_meta(raw)
+
+            if _is_narrow_refusal(text):
+                logger.warning("Narrow refusal detected, retrying LLM for user %s", user_id)
+                retry_messages = messages + [
+                    {"role": "assistant", "content": text},
+                    {"role": "user", "content": RETRY_NUDGE},
+                ]
+                raw = self._call_llm(retry_messages)
+                text, escalate, confidence = _parse_meta(raw)
+
         except APIStatusError as exc:
             logger.error("LLM API %s: %s", exc.status_code, exc.message)
             return AiReply(
@@ -128,7 +164,6 @@ class LlmSupportClient:
                 raw="",
             )
 
-        text, escalate, confidence = _parse_meta(raw)
         return AiReply(text=text, escalate=escalate, confidence=confidence, raw=raw)
 
 

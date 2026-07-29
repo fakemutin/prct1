@@ -5,6 +5,7 @@
   var overlay;
   var hideTimer;
   var hooked;
+  var verificationEnabled = null;
 
   function t(key) {
     return window.SatkaI18n ? window.SatkaI18n.t(key) : key;
@@ -22,6 +23,22 @@
     } catch (e) {
       return REGISTER_RE.test(String(url));
     }
+  }
+
+  function loadVerificationFlag() {
+    if (verificationEnabled !== null) return Promise.resolve(verificationEnabled);
+    return fetch('/api/cabinet/branding/email-auth', { credentials: 'same-origin' })
+      .then(function (res) {
+        return res.ok ? res.json() : null;
+      })
+      .then(function (data) {
+        verificationEnabled = !!(data && data.verification_enabled);
+        return verificationEnabled;
+      })
+      .catch(function () {
+        verificationEnabled = false;
+        return false;
+      });
   }
 
   function playSuccessSound() {
@@ -58,18 +75,6 @@
         osc.stop(start + note.d + 0.05);
       });
 
-      var shimmer = ctx.createOscillator();
-      var shimmerGain = ctx.createGain();
-      shimmer.type = 'sine';
-      shimmer.frequency.setValueAtTime(1760, now + 0.32);
-      shimmerGain.gain.setValueAtTime(0.0001, now + 0.32);
-      shimmerGain.gain.exponentialRampToValueAtTime(0.08, now + 0.36);
-      shimmerGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.75);
-      shimmer.connect(shimmerGain);
-      shimmerGain.connect(master);
-      shimmer.start(now + 0.32);
-      shimmer.stop(now + 0.8);
-
       setTimeout(function () {
         ctx.close().catch(function () {});
       }, 1400);
@@ -99,10 +104,14 @@
     return overlay;
   }
 
-  function refreshText() {
+  function refreshText(verifyMode) {
     if (!overlay) return;
-    overlay.querySelector('.satka-reg-success-title').textContent = t('register.success.title');
-    overlay.querySelector('.satka-reg-success-text').textContent = t('register.success.message');
+    overlay.querySelector('.satka-reg-success-title').textContent = verifyMode
+      ? t('register.success.verifyTitle')
+      : t('register.success.title');
+    overlay.querySelector('.satka-reg-success-text').textContent = verifyMode
+      ? t('register.success.verifyMessage')
+      : t('register.success.message');
     overlay.querySelector('.satka-reg-success-btn').textContent = t('register.success.btn');
   }
 
@@ -112,19 +121,43 @@
     clearTimeout(hideTimer);
   }
 
-  function show() {
+  function show(verifyMode) {
     if (!isLoginPage()) return;
     ensureOverlay();
-    refreshText();
+    refreshText(verifyMode);
     overlay.classList.add('is-visible');
     playSuccessSound();
     clearTimeout(hideTimer);
-    hideTimer = setTimeout(hide, 8000);
+    hideTimer = setTimeout(hide, verifyMode ? 12000 : 8000);
   }
 
-  function onRegisterSuccess() {
+  function onRegisterSuccess(res) {
     if (!isLoginPage()) return;
-    setTimeout(show, 120);
+    var chain = Promise.resolve(verificationEnabled);
+    if (verificationEnabled === null) {
+      chain = loadVerificationFlag();
+    }
+    chain.then(function (enabled) {
+      if (enabled && res && res.clone) {
+        return res
+          .clone()
+          .json()
+          .then(function (body) {
+            var needsVerify = body && (body.requires_verification === true || body.requires_verification === undefined);
+            setTimeout(function () {
+              show(needsVerify);
+            }, 120);
+          })
+          .catch(function () {
+            setTimeout(function () {
+              show(true);
+            }, 120);
+          });
+      }
+      setTimeout(function () {
+        show(!!enabled);
+      }, 120);
+    });
   }
 
   function hookFetch() {
@@ -135,7 +168,7 @@
       var method = (init && init.method) || (input && input.method) || 'GET';
       var track = isRegisterRequest(url, method);
       return orig.apply(this, arguments).then(function (res) {
-        if (track && res.ok) onRegisterSuccess();
+        if (track && res.ok) onRegisterSuccess(res);
         return res;
       });
     }
@@ -157,7 +190,11 @@
       var xhr = this;
       if (isRegisterRequest(xhr.__satkaRegUrl, xhr.__satkaRegMethod)) {
         xhr.addEventListener('load', function () {
-          if (xhr.status >= 200 && xhr.status < 300) onRegisterSuccess();
+          if (xhr.status >= 200 && xhr.status < 300) {
+            loadVerificationFlag().then(function (enabled) {
+              show(enabled);
+            });
+          }
         });
       }
       return send.apply(this, arguments);
@@ -165,10 +202,21 @@
   }
 
   function init() {
+    loadVerificationFlag();
     hookFetch();
     hookXHR();
-    if (window.SatkaI18n) window.SatkaI18n.onChange(refreshText);
-    window.addEventListener('satka-language-changed', refreshText);
+    if (window.SatkaI18n) {
+      window.SatkaI18n.onChange(function () {
+        if (overlay && overlay.classList.contains('is-visible')) {
+          refreshText(verificationEnabled);
+        }
+      });
+    }
+    window.addEventListener('satka-language-changed', function () {
+      if (overlay && overlay.classList.contains('is-visible')) {
+        refreshText(verificationEnabled);
+      }
+    });
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);

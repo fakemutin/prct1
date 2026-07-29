@@ -1,0 +1,21 @@
+services:
+  satka-postfix:
+    image: boky/postfix:latest
+    container_name: satka_postfix
+    restart: unless-stopped
+    environment:
+      RELAYHOST: '[smtp.gmail.com]:587'
+      RELAYHOST_USERNAME: satkavpn@gmail.com
+      RELAYHOST_PASSWORD: ${GMAIL_APP_PASSWORD}
+      ALLOWED_SENDER_DOMAINS: gmail.com satkaconnect.xyz
+      HOSTNAME: mail.satkaconnect.xyz
+      POSTFIX_smtp_tls_security_level: encrypt
+      POSTFIX_inet_protocols: ipv4
+      TZ: Europe/Moscow
+    networks:
+      - bot-network
+
+networks:
+  bot-network:
+    external: true
+    name: bedolaga_bot-network

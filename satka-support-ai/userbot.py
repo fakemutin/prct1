@@ -21,7 +21,7 @@ from config import Settings
 from llm_client import LlmSupportClient, user_requests_operator
 from message_filters import classify_message
 
-BOT_VERSION = "2026-07-30-v4.1"
+BOT_VERSION = "2026-07-30-v4.2"
 
 logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -37,6 +37,7 @@ class UserSession:
     history: deque = field(default_factory=lambda: deque(maxlen=24))
     last_escalation_ts: float = 0.0
     unclear_streak: int = 0
+    greeted: bool = False
 
 
 class SupportUserbot:
@@ -319,9 +320,11 @@ class SupportUserbot:
         operator_requested = user_requests_operator(text)
 
         filter_kind, filter_reply = classify_message(text)
-        if filter_kind == "manipulation" and filter_reply:
+        if filter_kind in {"manipulation", "off_topic"} and filter_reply:
             logger.info("Filtered %s message from user %s", filter_kind, user_id)
             await self._reply(event, filter_reply, session=session)
+            session.history.append({"role": "user", "text": text})
+            session.history.append({"role": "assistant", "text": filter_reply})
             return
 
         if operator_requested:
@@ -342,11 +345,12 @@ class SupportUserbot:
             )
             return
 
-        canned = match_canned(text)
+        canned = match_canned(text, already_greeted=session.greeted)
         if canned:
             sent = await self._reply(event, canned, session=session)
             session.history.append({"role": "user", "text": text})
             session.history.append({"role": "assistant", "text": sent})
+            session.greeted = True
             return
 
         async with self.client.action(event.chat_id, "typing"):
@@ -359,6 +363,7 @@ class SupportUserbot:
                     username=username,
                     user_id=user_id,
                     display_name=display_name,
+                    has_history=bool(session.history),
                 )
 
         if self._chat_is_blocked(event.chat_id):
@@ -377,6 +382,7 @@ class SupportUserbot:
         sent = await self._reply(event, reply, session=session)
         session.history.append({"role": "user", "text": text})
         session.history.append({"role": "assistant", "text": sent})
+        session.greeted = True
 
         if ai.escalate and not ai.api_error:
             await self._maybe_escalate(

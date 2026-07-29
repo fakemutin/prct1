@@ -9,30 +9,20 @@ from dataclasses import dataclass
 
 from openai import APIStatusError, OpenAI
 
-from canned_responses import GREETING_REPLY, SERVICE_INFO_REPLY, match_canned, with_first_hint
 from config import Settings
+from message_filters import OFF_TOPIC_REPLY
 from prompts import SYSTEM_PROMPT, build_user_context
 
 logger = logging.getLogger(__name__)
 
 META_RE = re.compile(r"SATKA_META:\s*(\{.*?\})\s*$", re.DOTALL | re.MULTILINE)
 
-# Узкие шаблонные отказы — если модель их выдала, делаем повторный запрос
-NARROW_REPLY_RE = re.compile(
-    r"("
-    r"помогаю\s+только\s+по\s+satka|"
-    r"помогаю\s+только\s+с\s+подписк|"
-    r"я\s+помогаю\s+только\s+по\s+satka|"
-    r"напишите,?\s+что\s+именно\s+не\s+работает\s+или\s+что\s+хотите\s+настроить"
-    r")",
+CODE_IN_REPLY_RE = re.compile(
+    r"(print\s*\(|def\s+\w+\s*\(|```|hello\s*world|import\s+\w+)",
     re.IGNORECASE,
 )
 
-RETRY_NUDGE = (
-    "Стоп. Клиент задал нормальный вопрос — это НЕ отказная ситуация. "
-    "Ответь по существу: дружелюбно, развёрнуто, с конкретикой про Satka VPN. "
-    "Никаких фраз «помогаю только с подпиской/Happ/оплатой»."
-)
+GREETING_SPAM_RE = re.compile(r"^(привет|здравствуй|hello|hi)\b", re.IGNORECASE)
 
 
 @dataclass
@@ -62,8 +52,17 @@ def _parse_meta(raw: str) -> tuple[str, bool, str]:
     return visible, escalate, confidence
 
 
-def _is_narrow_refusal(text: str) -> bool:
-    return bool(NARROW_REPLY_RE.search(text))
+def _sanitize_reply(text: str, *, has_history: bool) -> str:
+    if CODE_IN_REPLY_RE.search(text):
+        logger.warning("LLM tried to output code, replacing with off-topic reply")
+        return OFF_TOPIC_REPLY
+    if has_history and GREETING_SPAM_RE.search(text.strip()):
+        # убрать повторное приветствие — оставить суть
+        lines = [ln for ln in text.splitlines() if not GREETING_SPAM_RE.search(ln.strip())]
+        cleaned = "\n".join(ln for ln in lines if ln.strip()).strip()
+        if cleaned:
+            return cleaned
+    return text
 
 
 def _user_facing_error(exc: Exception) -> str:
@@ -107,9 +106,9 @@ class LlmSupportClient:
         response = self._client.chat.completions.create(
             model=self._settings.llm_model,
             messages=messages,
-            temperature=0.6,
-            top_p=0.92,
-            max_tokens=1200,
+            temperature=0.35,
+            top_p=0.9,
+            max_tokens=600,
         )
         return (response.choices[0].message.content or "").strip()
 
@@ -121,32 +120,17 @@ class LlmSupportClient:
         username: str | None,
         user_id: int,
         display_name: str | None,
+        has_history: bool = False,
     ) -> AiReply:
-        user_ctx = build_user_context(username, user_id, display_name)
+        user_ctx = build_user_context(
+            username, user_id, display_name, has_history=has_history,
+        )
         messages = self._messages(history, user_message, user_ctx)
 
         try:
             raw = self._call_llm(messages)
             text, escalate, confidence = _parse_meta(raw)
-
-            if _is_narrow_refusal(text):
-                logger.warning("Narrow refusal detected, retrying LLM for user %s", user_id)
-                retry_messages = messages + [
-                    {"role": "assistant", "content": text},
-                    {"role": "user", "content": RETRY_NUDGE},
-                ]
-                raw = self._call_llm(retry_messages)
-                text, escalate, confidence = _parse_meta(raw)
-
-            if _is_narrow_refusal(text):
-                fallback = match_canned(user_message)
-                if fallback:
-                    text = fallback
-                else:
-                    text = SERVICE_INFO_REPLY if len(user_message) > 30 else GREETING_REPLY
-                escalate = False
-                confidence = "high"
-                logger.warning("Replaced narrow refusal with canned reply for user %s", user_id)
+            text = _sanitize_reply(text, has_history=has_history)
 
         except APIStatusError as exc:
             logger.error("LLM API %s: %s", exc.status_code, exc.message)

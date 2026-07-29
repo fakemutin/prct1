@@ -7,6 +7,7 @@ import re
 GREETING_WORDS = (
     "привет", "прив", "здравствуй", "здравствуйте", "hello", "hi", "hey",
     "добрый день", "добрый вечер", "доброе утро", "хай", "салам", "приветствую",
+    "privet",
 )
 
 SERVICE_INFO_RE = re.compile(
@@ -31,25 +32,23 @@ SERVICE_INFO_RE = re.compile(
 )
 
 GREETING_REPLY = (
-    "Привет! Я из поддержки Satka VPN 🤍\n\n"
-    "Могу рассказать про сервис и тарифы, помочь подключить Happ, "
-    "разобраться с оплатой, кабинетом, скоростью, устройствами и рефералкой.\n"
-    "Что вас интересует?"
+    "Здравствуйте! Поддержка Satka VPN.\n"
+    "Чем помочь — подключение, тарифы, Happ, оплата, кабинет?"
+)
+
+GREETING_AGAIN_REPLY = (
+    "Чем помочь по Satka VPN — подключение, тарифы, Happ, оплата, кабинет?"
 )
 
 SERVICE_INFO_REPLY = (
-    "Satka VPN — VPN-сервис с доступными тарифами от 20 ₽/день и бесплатным периодом 4 дня.\n\n"
-    "Что есть у нас:\n"
-    "• Тарифы на 1–25 устройств — Базовый, Расширенный, Семейный, Бизнес\n"
-    "• «Для мамы» — отдельный тариф для обхода глушилок LTE\n"
-    "• Подключение через Happ — одна ссылка, без сложных настроек\n"
-    "• Оплата: карта, СБП, Telegram Stars, криптовалюта\n"
-    "• Бот @satkavpn_bot и кабинет node.satkaconnect.xyz\n"
-    "• Реферальная программа с бонусами\n"
-    "• Поддержка работает круглосуточно\n\n"
-    "Сравнивать все VPN не буду, но если важны цена, простота и гибкие тарифы — "
-    "это наши сильные стороны.\n"
-    "Что для вас важнее — цена, несколько устройств или обход блокировок?"
+    "Satka VPN — VPN-сервис с тарифами от 20 ₽/день и бесплатным периодом 4 дня.\n\n"
+    "• Тарифы на 1–25 устройств\n"
+    "• «Для мамы» — обход глушилок LTE\n"
+    "• Подключение через Happ по одной ссылке\n"
+    "• Оплата: карта, СБП, Stars, крипто\n"
+    "• Бот @satkavpn_bot, кабинет node.satkaconnect.xyz\n"
+    "• Реферальная программа\n\n"
+    "Что интересует — цена, устройства или обход блокировок?"
 )
 
 OPERATOR_FIRST_HINT = (
@@ -70,12 +69,12 @@ def with_first_hint(text: str, *, first_contact: bool) -> str:
     return text + OPERATOR_FIRST_HINT
 
 
-def match_canned(text: str) -> str | None:
+def match_canned(text: str, *, already_greeted: bool = False) -> str | None:
     cleaned = (text or "").strip()
     if not cleaned:
         return None
     if _is_greeting(cleaned):
-        return GREETING_REPLY
+        return GREETING_AGAIN_REPLY if already_greeted else GREETING_REPLY
     if SERVICE_INFO_RE.search(cleaned):
         return SERVICE_INFO_REPLY
     return None

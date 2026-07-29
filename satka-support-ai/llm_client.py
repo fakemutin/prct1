@@ -5,10 +5,12 @@ from __future__ import annotations
 import json
 import logging
 import re
+import time
 from dataclasses import dataclass
 
 from openai import APIStatusError, OpenAI
 
+from canned_responses import CONNECT_REPLY, match_canned
 from config import Settings
 from message_filters import OFF_TOPIC_REPLY
 from prompts import SYSTEM_PROMPT, build_user_context
@@ -103,14 +105,24 @@ class LlmSupportClient:
         return messages
 
     def _call_llm(self, messages: list[dict[str, str]]) -> str:
-        response = self._client.chat.completions.create(
-            model=self._settings.llm_model,
-            messages=messages,
-            temperature=0.35,
-            top_p=0.9,
-            max_tokens=600,
-        )
-        return (response.choices[0].message.content or "").strip()
+        last_exc: Exception | None = None
+        for attempt in range(3):
+            try:
+                response = self._client.chat.completions.create(
+                    model=self._settings.llm_model,
+                    messages=messages,
+                    temperature=0.4,
+                    top_p=0.9,
+                    max_tokens=500,
+                )
+                return (response.choices[0].message.content or "").strip()
+            except APIStatusError as exc:
+                last_exc = exc
+                if exc.status_code == 429 and attempt < 2:
+                    time.sleep(2 ** attempt + 1)
+                    continue
+                raise
+        raise last_exc  # type: ignore[misc]
 
     def reply(
         self,
@@ -134,6 +146,11 @@ class LlmSupportClient:
 
         except APIStatusError as exc:
             logger.error("LLM API %s: %s", exc.status_code, exc.message)
+            if exc.status_code == 429:
+                fallback = match_canned(user_message)
+                if fallback:
+                    return AiReply(text=fallback, escalate=False, confidence="high", raw=str(exc), api_error=False)
+                return AiReply(text=CONNECT_REPLY, escalate=False, confidence="medium", raw=str(exc), api_error=False)
             return AiReply(
                 text=_user_facing_error(exc),
                 escalate=False,

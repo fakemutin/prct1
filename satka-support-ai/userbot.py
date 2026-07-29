@@ -16,12 +16,12 @@ from telethon import TelegramClient, events
 from telethon.tl.functions.account import UpdateStatusRequest
 from telethon.tl.types import User
 
-from canned_responses import match_canned, with_first_hint
+from canned_responses import STICKER_REPLY, match_canned, with_first_hint
 from config import Settings
 from llm_client import LlmSupportClient, user_requests_operator
 from message_filters import classify_message
 
-BOT_VERSION = "2026-07-30-v4.2"
+BOT_VERSION = "2026-07-30-v5"
 
 logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -259,7 +259,7 @@ class SupportUserbot:
         )
 
     async def handle_message(self, event: events.NewMessage.Event) -> None:
-        if not event.is_private or not event.message or not event.message.text:
+        if not event.is_private or not event.message:
             return
 
         sender = await event.get_sender()
@@ -278,9 +278,12 @@ class SupportUserbot:
             )
             return
 
-        text = event.message.text.strip()
+        text = (event.message.text or "").strip()
         if not text:
-            return
+            if event.message.sticker:
+                text = "[стикер]"
+            else:
+                return
 
         user_id = sender.id
         username = sender.username
@@ -319,6 +322,22 @@ class SupportUserbot:
 
         operator_requested = user_requests_operator(text)
 
+        # 1) Готовые ответы и приветствия — до фильтров
+        if text == "[стикер]":
+            sent = await self._reply(event, STICKER_REPLY, session=session)
+            session.history.append({"role": "user", "text": text})
+            session.history.append({"role": "assistant", "text": sent})
+            return
+
+        canned = match_canned(text, already_greeted=session.greeted)
+        if canned:
+            sent = await self._reply(event, canned, session=session)
+            session.history.append({"role": "user", "text": text})
+            session.history.append({"role": "assistant", "text": sent})
+            session.greeted = True
+            return
+
+        # 2) Оффтоп и провокации
         filter_kind, filter_reply = classify_message(text)
         if filter_kind in {"manipulation", "off_topic"} and filter_reply:
             logger.info("Filtered %s message from user %s", filter_kind, user_id)
@@ -343,14 +362,6 @@ class SupportUserbot:
                 last_message=text,
                 force=True,
             )
-            return
-
-        canned = match_canned(text, already_greeted=session.greeted)
-        if canned:
-            sent = await self._reply(event, canned, session=session)
-            session.history.append({"role": "user", "text": text})
-            session.history.append({"role": "assistant", "text": sent})
-            session.greeted = True
             return
 
         async with self.client.action(event.chat_id, "typing"):

@@ -5,6 +5,8 @@ from __future__ import annotations
 import re
 from typing import Literal
 
+from canned_responses import is_greeting_word
+
 FilterResult = Literal["ok", "manipulation", "off_topic"]
 
 OFF_TOPIC_REPLY = (
@@ -45,13 +47,20 @@ OFF_TOPIC_RE = re.compile(
     r"напиш\w*\s+(мне\s+)?(код|скрипт)|"
     r"написать\s+скрипт|"
     r"напиши\s+код|"
+    r"сделай\s+(мне\s+)?(код|скрипт|бот)|"
     r"код\s+на\s+(python|питон|js|javascript|java|c\+\+)|"
     r"скрипт\s+для|"
     r"hello\s*world|"
     r"print\s*\(|"
     r"def\s+\w+\s*\(|"
+    r"import\s+\w+|"
+    r"telethon|"
+    r"userbot|"
+    r"юзербот|"
+    r"автоматиз|"
+    r"без\s+ui|"
+    r"нету\s+ui|"
     r"программир|"
-    r"сделай\s+скрипт|"
     r"помоги\s+с\s+(python|кодом|программ)|"
     r"расскажи\s+анекдот|"
     r"поиграем|"
@@ -76,27 +85,30 @@ VPN_TOPIC_RE = re.compile(
     r"импорт|ссылк|ошибк|не\s+работ|помог|проблем|срочн|"
     r"не\s+могу|не\s+получ|не\s+вижу|не\s+открыв|не\s+заход|"
     r"купил|оплатил|деньг|рубл|завис|висит|отвал|"
-    r"приложен|программ|настро|включ|выключ|переустанов|"
-    r"для\s+мамы|ютуб|youtube|telegram|телеграм"
+    r"приложен|настро|включ|выключ|переустанов|"
+    r"для\s+мамы|ютуб|youtube|telegram|телеграм|privet|привет"
     r")",
     re.IGNORECASE,
 )
-
-GIBBERISH_RE = re.compile(r"^[a-z]{6,}$", re.IGNORECASE)
 
 
 def _is_gibberish(text: str) -> bool:
     cleaned = text.strip()
     if len(cleaned) < 4:
         return False
+    if is_greeting_word(cleaned):
+        return False
     if " " in cleaned:
         return False
     if VPN_TOPIC_RE.search(cleaned):
         return False
-    if GIBBERISH_RE.match(cleaned):
-        return True
-    vowels = len(re.findall(r"[аеёиоуыэюяaeiou]", cleaned, re.IGNORECASE))
-    if len(cleaned) >= 6 and vowels / len(cleaned) < 0.12:
+    # только латиница 6+ символов без гласных слов — клавиатурный мусор
+    if re.fullmatch(r"[a-z]{6,}", cleaned, re.IGNORECASE):
+        vowels = len(re.findall(r"[aeiou]", cleaned, re.IGNORECASE))
+        if vowels / len(cleaned) < 0.2:
+            return True
+    # повтор одной буквы: цццц, аааа
+    if len(set(cleaned.lower())) <= 2 and len(cleaned) >= 4:
         return True
     return False
 
@@ -106,17 +118,21 @@ def classify_message(text: str) -> tuple[FilterResult, str | None]:
     if not cleaned:
         return "ok", None
 
+    if is_greeting_word(cleaned):
+        return "ok", None
+
     if MANIPULATION_RE.search(cleaned):
         return "manipulation", MANIPULATION_REPLY
 
+    # Код/скрипты — всегда оффтоп, даже если упомянут VPN
     if OFF_TOPIC_RE.search(cleaned):
         return "off_topic", OFF_TOPIC_REPLY
 
     if _is_gibberish(cleaned):
         return "off_topic", OFF_TOPIC_REPLY
 
-    # Длинное сообщение без единого признака VPN-темы
-    if len(cleaned) > 60 and not VPN_TOPIC_RE.search(cleaned):
+    # Длинный текст без VPN-темы
+    if len(cleaned) > 80 and not VPN_TOPIC_RE.search(cleaned):
         return "off_topic", OFF_TOPIC_REPLY
 
     return "ok", None

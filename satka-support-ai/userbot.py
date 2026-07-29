@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Satka VPN — support userbot (Telethon + DeepSeek)."""
+"""Satka VPN — support userbot."""
 
 from __future__ import annotations
 
@@ -16,9 +16,12 @@ from telethon import TelegramClient, events
 from telethon.tl.functions.account import UpdateStatusRequest
 from telethon.tl.types import User
 
+from canned_responses import match_canned
 from config import Settings
 from llm_client import LlmSupportClient, user_requests_operator
 from message_filters import classify_message
+
+BOT_VERSION = "2026-07-30-v3"
 
 logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -155,7 +158,10 @@ class SupportUserbot:
         await event.respond(text, link_preview=False)
 
     async def handle_outgoing(self, event: events.NewMessage.Event) -> None:
+        # Только команды /ai в Избранном. Ответы оператору в чатах пользователей — игнорируем.
         if not event.out or not event.is_private or not event.message:
+            return
+        if not self._me_id or event.chat_id != self._me_id:
             return
 
         text = (event.message.text or "").strip()
@@ -313,6 +319,13 @@ class SupportUserbot:
             )
             return
 
+        canned = match_canned(text)
+        if canned:
+            await self._reply(event, canned)
+            session.history.append({"role": "user", "text": text})
+            session.history.append({"role": "assistant", "text": canned})
+            return
+
         async with self.client.action(event.chat_id, "typing"):
             history = [{"role": t["role"], "text": t["text"]} for t in session.history]
             async with self._llm_sem:
@@ -395,13 +408,15 @@ async def run() -> None:
     me = await client.get_me()
     bot = SupportUserbot(settings, client)
     bot._me_id = me.id
+    bot._blocked_chats_until.clear()
     bot.register_handlers()
 
     await client(UpdateStatusRequest(offline=False))
     asyncio.create_task(bot._keep_online_loop())
 
     logger.info(
-        "Support userbot online as @%s (model=%s, concurrent=%s, keepalive=%ss)",
+        "Support userbot v%s online as @%s (model=%s, concurrent=%s, keepalive=%ss)",
+        BOT_VERSION,
         me.username,
         settings.llm_model,
         settings.max_concurrent_replies,

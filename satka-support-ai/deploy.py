@@ -27,6 +27,7 @@ def pack_source(tmp_path: Path) -> Path:
     files = [
         "auth_session.py",
         "userbot.py",
+        "canned_responses.py",
         "config.py",
         "llm_client.py",
         "message_filters.py",

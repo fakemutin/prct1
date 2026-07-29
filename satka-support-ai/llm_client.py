@@ -9,6 +9,7 @@ from dataclasses import dataclass
 
 from openai import APIStatusError, OpenAI
 
+from canned_responses import GREETING_REPLY, SERVICE_INFO_REPLY, match_canned
 from config import Settings
 from prompts import SYSTEM_PROMPT, build_user_context
 
@@ -136,6 +137,16 @@ class LlmSupportClient:
                 ]
                 raw = self._call_llm(retry_messages)
                 text, escalate, confidence = _parse_meta(raw)
+
+            if _is_narrow_refusal(text):
+                fallback = match_canned(user_message)
+                if fallback:
+                    text = fallback
+                else:
+                    text = SERVICE_INFO_REPLY if len(user_message) > 30 else GREETING_REPLY
+                escalate = False
+                confidence = "high"
+                logger.warning("Replaced narrow refusal with canned reply for user %s", user_id)
 
         except APIStatusError as exc:
             logger.error("LLM API %s: %s", exc.status_code, exc.message)

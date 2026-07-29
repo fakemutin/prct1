@@ -39,9 +39,37 @@ class SupportUserbot:
         self.sessions: dict[int, UserSession] = defaultdict(UserSession)
         self._escalation_cooldown_sec = 300
         self._me_id: int | None = None
+        self._ai_sent_ids: set[int] = set()
+        self._human_chats_until: dict[int, float] = {}
+        self._global_ai_paused_until: float = 0.0
+        self._ai_enabled: bool = settings.ai_globally_enabled
 
     def _session(self, user_id: int) -> UserSession:
         return self.sessions[user_id]
+
+    def _chat_is_human(self, chat_id: int) -> bool:
+        if not self._ai_enabled:
+            return True
+        if time.time() < self._global_ai_paused_until:
+            return True
+        return self._human_chats_until.get(chat_id, 0) > time.time()
+
+    def _mark_human_chat(self, chat_id: int) -> None:
+        self._human_chats_until[chat_id] = time.time() + self.settings.human_takeover_sec
+        if self.settings.global_pause_on_manual_sec > 0:
+            self._global_ai_paused_until = time.time() + self.settings.global_pause_on_manual_sec
+            logger.info(
+                "Operator replied in chat %s — AI paused globally for %ss",
+                chat_id,
+                self.settings.global_pause_on_manual_sec,
+            )
+        else:
+            logger.info("Operator replied in chat %s — AI paused for this chat", chat_id)
+
+    def _track_ai_message(self, message_id: int) -> None:
+        self._ai_sent_ids.add(message_id)
+        if len(self._ai_sent_ids) > 500:
+            self._ai_sent_ids = set(list(self._ai_sent_ids)[-300:])
 
     async def _send_admin_alerts(
         self,
@@ -115,7 +143,42 @@ class SupportUserbot:
         )
 
     async def _reply(self, event: events.NewMessage.Event, text: str) -> None:
-        await event.respond(text, link_preview=False)
+        sent = await event.respond(text, link_preview=False)
+        if sent:
+            self._track_ai_message(sent.id)
+
+    async def handle_outgoing(self, event: events.NewMessage.Event) -> None:
+        if not event.out or not event.is_private or not event.message:
+            return
+
+        text = (event.message.text or "").strip()
+        low = text.lower()
+
+        # Operator control commands (from support account, e.g. Saved Messages)
+        if low == "/ai off":
+            self._ai_enabled = False
+            self._global_ai_paused_until = time.time() + 10 * 365 * 86400
+            logger.info("AI disabled globally by operator")
+            return
+        if low == "/ai on":
+            self._ai_enabled = True
+            self._global_ai_paused_until = 0
+            self._human_chats_until.clear()
+            logger.info("AI enabled globally by operator")
+            return
+        if low == "/ai status":
+            paused = not self._ai_enabled or time.time() < self._global_ai_paused_until
+            await event.edit(
+                f"AI: {'ВЫКЛ' if paused else 'ВКЛ'}\n"
+                f"Чатов на паузе: {sum(1 for t in self._human_chats_until.values() if t > time.time())}"
+            )
+            return
+
+        if event.message.id in self._ai_sent_ids:
+            return
+
+        if text:
+            self._mark_human_chat(event.chat_id)
 
     async def handle_message(self, event: events.NewMessage.Event) -> None:
         if not event.is_private or not event.message or not event.message.text:
@@ -126,6 +189,10 @@ class SupportUserbot:
             return
 
         if self.settings.allowed_chat_ids and event.chat_id not in self.settings.allowed_chat_ids:
+            return
+
+        if self._chat_is_human(event.chat_id):
+            logger.debug("Skipping AI for chat %s — operator mode", event.chat_id)
             return
 
         text = event.message.text.strip()
@@ -142,17 +209,17 @@ class SupportUserbot:
         if low in {"/start", "start"}:
             await self._reply(
                 event,
-                "Привет! Я ассистент Satka VPN 🤍\n\n"
+                "Привет! Поддержка Satka VPN 🤍\n\n"
                 "Помогу с Happ, подпиской, оплатой и кабинетом.\n"
                 "Опишите проблему своими словами.\n\n"
-                "Если нужен живой человек — напишите «Оператор».",
+                "Нужен живой человек — напишите «Оператор».",
             )
             return
 
         if low in {"/help", "help"}:
             await self._reply(
                 event,
-                "Отвечаю по Satka VPN: Happ, подписка, оплата, кабинет.\n"
+                "Satka VPN: Happ, подписка, оплата, кабинет.\n"
                 "Бот: @satkavpn_bot · Кабинет: node.satkaconnect.xyz\n\n"
                 "Живой оператор: напишите «Оператор»",
             )
@@ -160,6 +227,7 @@ class SupportUserbot:
 
         if low in {"/reset", "reset"}:
             self.sessions.pop(user_id, None)
+            self._human_chats_until.pop(event.chat_id, None)
             await self._reply(event, "Диалог сброшен. Можете описать вопрос заново.")
             return
 
@@ -167,8 +235,8 @@ class SupportUserbot:
         if operator_requested:
             await self._reply(
                 event,
-                "Передаю в живую поддержку. Кратко опишите проблему и приложите скрин из Happ, "
-                "если есть — оператор скоро ответит.",
+                "Передаю оператору. Кратко опишите проблему и приложите скрин из Happ, "
+                "если есть — скоро ответим.",
             )
             await self._maybe_escalate(
                 session,
@@ -192,23 +260,27 @@ class SupportUserbot:
                 display_name=display_name,
             )
 
+        if self._chat_is_human(event.chat_id):
+            return
+
         session.history.append({"role": "user", "text": text})
         session.history.append({"role": "assistant", "text": ai.text})
 
         reply = ai.text
-        if ai.confidence == "low" and not ai.escalate:
-            reply += "\n\nЕсли всё ещё непонятно — напишите «Оператор», подключим человека."
-            session.unclear_streak += 1
-        else:
-            session.unclear_streak = 0
+        if not ai.api_error:
+            if ai.confidence == "low" and not ai.escalate:
+                reply += "\n\nЕсли всё ещё непонятно — напишите «Оператор», подключим человека."
+                session.unclear_streak += 1
+            else:
+                session.unclear_streak = 0
 
-        if session.unclear_streak >= 2 and not ai.escalate:
-            reply += "\n\nПохоже, сложный случай. Напишите «Оператор» — передам в поддержку."
-            ai.escalate = True
+            if session.unclear_streak >= 2 and not ai.escalate:
+                reply += "\n\nПохоже, сложный случай. Напишите «Оператор» — передам в поддержку."
+                ai.escalate = True
 
         await self._reply(event, reply)
 
-        if ai.escalate:
+        if ai.escalate and not ai.api_error:
             await self._maybe_escalate(
                 session,
                 user_id=user_id,
@@ -221,11 +293,18 @@ class SupportUserbot:
 
     def register_handlers(self) -> None:
         @self.client.on(events.NewMessage(incoming=True))
-        async def on_message(event: events.NewMessage.Event) -> None:
+        async def on_incoming(event: events.NewMessage.Event) -> None:
             try:
                 await self.handle_message(event)
             except Exception:
                 logger.exception("Handler error for chat %s", event.chat_id)
+
+        @self.client.on(events.NewMessage(outgoing=True))
+        async def on_outgoing(event: events.NewMessage.Event) -> None:
+            try:
+                await self.handle_outgoing(event)
+            except Exception:
+                logger.exception("Outgoing handler error for chat %s", event.chat_id)
 
 
 async def run() -> None:
@@ -246,10 +325,12 @@ async def run() -> None:
     bot.register_handlers()
 
     logger.info(
-        "Support userbot online as @%s (model=%s, admin=%s)",
+        "Support userbot online as @%s (model=%s, admin=%s, human_pause=%ss, global_pause=%ss)",
         me.username,
         settings.deepseek_model,
         settings.admin_chat_id,
+        settings.human_takeover_sec,
+        settings.global_pause_on_manual_sec,
     )
     await client.run_until_disconnected()
 

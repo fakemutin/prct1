@@ -7,7 +7,7 @@ import logging
 import re
 from dataclasses import dataclass
 
-from openai import OpenAI
+from openai import APIStatusError, OpenAI
 
 from config import Settings
 from prompts import SYSTEM_PROMPT, build_user_context
@@ -23,6 +23,7 @@ class AiReply:
     escalate: bool
     confidence: str
     raw: str
+    api_error: bool = False
 
 
 def _parse_meta(raw: str) -> tuple[str, bool, str]:
@@ -43,12 +44,28 @@ def _parse_meta(raw: str) -> tuple[str, bool, str]:
     return visible, escalate, confidence
 
 
+def _user_facing_error(exc: Exception) -> str:
+    if isinstance(exc, APIStatusError):
+        if exc.status_code == 402:
+            return (
+                "Сейчас ассистент на паузе — оператор скоро ответит лично. "
+                "Если срочно, напишите «Оператор»."
+            )
+        if exc.status_code == 429:
+            return "Много обращений сейчас — подождите минуту и напишите снова."
+    return (
+        "Не удалось обработать сообщение автоматически. "
+        "Напишите «Оператор» — подключим специалиста."
+    )
+
+
 class DeepSeekSupportClient:
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
         self._client = OpenAI(
             api_key=settings.deepseek_api_key,
             base_url=settings.deepseek_base_url,
+            timeout=45.0,
         )
 
     def _messages(
@@ -79,26 +96,33 @@ class DeepSeekSupportClient:
             response = self._client.chat.completions.create(
                 model=self._settings.deepseek_model,
                 messages=self._messages(history, user_message, user_ctx),
-                temperature=0.35,
+                temperature=0.4,
                 top_p=0.9,
-                max_tokens=900,
+                max_tokens=700,
             )
             raw = (response.choices[0].message.content or "").strip()
+        except APIStatusError as exc:
+            logger.error("DeepSeek API %s: %s", exc.status_code, exc.message)
+            return AiReply(
+                text=_user_facing_error(exc),
+                escalate=False,
+                confidence="low",
+                raw=str(exc),
+                api_error=True,
+            )
         except Exception as exc:
             logger.exception("DeepSeek API error")
             return AiReply(
-                text=(
-                    "Сейчас не могу обработать запрос — техсбой на стороне ассистента. "
-                    "Напишите **Оператор**, и мы подключим живую поддержку."
-                ),
-                escalate=True,
+                text=_user_facing_error(exc),
+                escalate=False,
                 confidence="low",
                 raw=str(exc),
+                api_error=True,
             )
 
         if not raw:
             return AiReply(
-                text="Не получилось сформировать ответ. Напишите **Оператор** — передам специалисту.",
+                text="Не получилось сформировать ответ. Напишите «Оператор» — передам специалисту.",
                 escalate=True,
                 confidence="low",
                 raw="",

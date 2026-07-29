@@ -35,6 +35,9 @@ class Settings:
     alert_repeat_delay_sec: float
     allowed_chat_ids: set[int] | None
     log_level: str
+    human_takeover_sec: int
+    global_pause_on_manual_sec: int
+    ai_globally_enabled: bool
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -66,6 +69,9 @@ class Settings:
             alert_repeat_delay_sec=float(_env("ALERT_REPEAT_DELAY_SEC", "1.2")),
             allowed_chat_ids=allowed,
             log_level=_env("LOG_LEVEL", "INFO").upper(),
+            human_takeover_sec=_env_int("HUMAN_TAKEOVER_SEC", 86400),
+            global_pause_on_manual_sec=_env_int("GLOBAL_PAUSE_ON_MANUAL_SEC", 7200),
+            ai_globally_enabled=_env("AI_GLOBALLY_ENABLED", "true").lower() in {"1", "true", "yes", "on"},
         )
 
     def validate(self) -> None:

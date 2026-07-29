@@ -16,12 +16,12 @@ from telethon import TelegramClient, events
 from telethon.tl.functions.account import UpdateStatusRequest
 from telethon.tl.types import User
 
-from canned_responses import match_canned
+from canned_responses import match_canned, with_first_hint
 from config import Settings
 from llm_client import LlmSupportClient, user_requests_operator
 from message_filters import classify_message
 
-BOT_VERSION = "2026-07-30-v4"
+BOT_VERSION = "2026-07-30-v4.1"
 
 logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",

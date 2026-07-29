@@ -43,8 +43,7 @@ class SupportUserbot:
         self.sessions: dict[int, UserSession] = defaultdict(UserSession)
         self._escalation_cooldown_sec = 300
         self._me_id: int | None = None
-        self._ai_sent_ids: set[int] = set()
-        self._human_chats_until: dict[int, float] = {}
+        self._blocked_chats_until: dict[int, float] = {}
         self._ai_enabled: bool = settings.ai_globally_enabled
         self._chat_locks: dict[int, asyncio.Lock] = defaultdict(asyncio.Lock)
         self._llm_sem = asyncio.Semaphore(settings.max_concurrent_replies)
@@ -53,16 +52,16 @@ class SupportUserbot:
     def _session(self, user_id: int) -> UserSession:
         return self.sessions[user_id]
 
-    def _chat_is_human(self, chat_id: int) -> bool:
+    def _chat_is_blocked(self, chat_id: int) -> bool:
         if not self._ai_enabled:
             return True
-        return self._human_chats_until.get(chat_id, 0) > time.time()
+        return self._blocked_chats_until.get(chat_id, 0) > time.time()
 
-    def _pause_chat(self, chat_id: int, seconds: int) -> None:
-        self._human_chats_until[chat_id] = time.time() + seconds
+    def _block_chat(self, chat_id: int, seconds: int) -> None:
+        self._blocked_chats_until[chat_id] = time.time() + seconds
 
-    def _unpause_chat(self, chat_id: int) -> None:
-        self._human_chats_until.pop(chat_id, None)
+    def _unblock_chat(self, chat_id: int) -> None:
+        self._blocked_chats_until.pop(chat_id, None)
 
     async def _saved_messages_reply(self, event: events.NewMessage.Event, text: str) -> None:
         if self._me_id and event.chat_id == self._me_id:
@@ -84,7 +83,7 @@ class SupportUserbot:
                 chat_id = entity.id
                 if action == "block":
                     secs = self.settings.ai_block_sec
-                    self._pause_chat(chat_id, secs)
+                    self._block_chat(chat_id, secs)
                     hours = secs / 3600
                     label = f"{int(hours)} ч." if secs % 3600 == 0 else f"{secs // 60} мин."
                     await self._saved_messages_reply(
@@ -93,7 +92,7 @@ class SupportUserbot:
                     )
                     logger.info("Operator blocked AI for @%s (%s) for %ss", username, chat_id, secs)
                 else:
-                    self._unpause_chat(chat_id)
+                    self._unblock_chat(chat_id)
                     await self._saved_messages_reply(
                         event,
                         f"AI разблокирован для @{username} (id {chat_id})",
@@ -112,20 +111,20 @@ class SupportUserbot:
             return True
         if low == "/ai on":
             self._ai_enabled = True
-            self._human_chats_until.clear()
+            self._blocked_chats_until.clear()
             await self._saved_messages_reply(event, "AI включён. Все блокировки сброшены.")
             logger.info("AI enabled globally by operator")
             return True
         if low in {"/ai resume", "/ai reset"}:
-            self._human_chats_until.clear()
+            self._blocked_chats_until.clear()
             await self._saved_messages_reply(event, "Все блокировки по чатам сброшены.")
-            logger.info("All per-chat AI pauses cleared by operator")
+            logger.info("All per-chat AI blocks cleared by operator")
             return True
         if low == "/ai status":
-            paused = sum(1 for t in self._human_chats_until.values() if t > time.time())
+            blocked = sum(1 for t in self._blocked_chats_until.values() if t > time.time())
             await self._saved_messages_reply(
                 event,
-                f"AI: {'ВЫКЛ' if not self._ai_enabled else 'ВКЛ'}\nЧатов на паузе: {paused}",
+                f"AI: {'ВЫКЛ' if not self._ai_enabled else 'ВКЛ'}\nЗаблокированных чатов: {blocked}",
             )
             return True
         if low == "/ai help":
@@ -143,16 +142,18 @@ class SupportUserbot:
 
         return False
 
-    def _mark_human_chat(self, chat_id: int) -> None:
-        if self._me_id and chat_id == self._me_id:
-            return
-        self._human_chats_until[chat_id] = time.time() + self.settings.human_takeover_sec
-        logger.info("Operator replied in chat %s — AI paused for this chat only", chat_id)
+    async def _reply(self, event: events.NewMessage.Event, text: str) -> None:
+        await event.respond(text, link_preview=False)
 
-    def _track_ai_message(self, message_id: int) -> None:
-        self._ai_sent_ids.add(message_id)
-        if len(self._ai_sent_ids) > 500:
-            self._ai_sent_ids = set(list(self._ai_sent_ids)[-300:])
+    async def handle_outgoing(self, event: events.NewMessage.Event) -> None:
+        if not event.out or not event.is_private or not event.message:
+            return
+
+        text = (event.message.text or "").strip()
+        if not text:
+            return
+
+        await self._handle_saved_commands(event, text)
 
     async def _send_admin_alerts(
         self,
@@ -225,27 +226,6 @@ class SupportUserbot:
             last_message=last_message,
         )
 
-    async def _reply(self, event: events.NewMessage.Event, text: str) -> None:
-        sent = await event.respond(text, link_preview=False)
-        if sent:
-            self._track_ai_message(sent.id)
-
-    async def handle_outgoing(self, event: events.NewMessage.Event) -> None:
-        if not event.out or not event.is_private or not event.message:
-            return
-
-        text = (event.message.text or "").strip()
-        if not text:
-            return
-
-        if await self._handle_saved_commands(event, text):
-            return
-
-        if event.message.id in self._ai_sent_ids:
-            return
-
-        self._mark_human_chat(event.chat_id)
-
     async def handle_message(self, event: events.NewMessage.Event) -> None:
         if not event.is_private or not event.message or not event.message.text:
             return
@@ -257,8 +237,8 @@ class SupportUserbot:
         if self.settings.allowed_chat_ids and event.chat_id not in self.settings.allowed_chat_ids:
             return
 
-        if self._chat_is_human(event.chat_id):
-            logger.debug("Skipping AI for chat %s — operator mode", event.chat_id)
+        if self._chat_is_blocked(event.chat_id):
+            logger.debug("Skipping AI for chat %s — manually blocked", event.chat_id)
             return
 
         text = event.message.text.strip()
@@ -293,7 +273,7 @@ class SupportUserbot:
 
         if low in {"/reset", "reset"}:
             self.sessions.pop(user_id, None)
-            self._human_chats_until.pop(event.chat_id, None)
+            self._blocked_chats_until.pop(event.chat_id, None)
             await self._reply(event, "Диалог сброшен. Можете описать вопрос заново.")
             return
 
@@ -334,23 +314,21 @@ class SupportUserbot:
                     display_name=display_name,
                 )
 
-        if self._chat_is_human(event.chat_id):
+        if self._chat_is_blocked(event.chat_id):
             return
 
         session.history.append({"role": "user", "text": text})
         session.history.append({"role": "assistant", "text": ai.text})
 
         reply = ai.text
-        if not ai.api_error:
-            if ai.confidence == "low" and not ai.escalate:
-                reply += "\n\nЕсли всё ещё непонятно — напишите «Оператор», подключим человека."
-                session.unclear_streak += 1
-            else:
-                session.unclear_streak = 0
+        if not ai.api_error and session.unclear_streak >= 3 and not ai.escalate:
+            reply += "\n\nЕсли не помогло — напишите «Оператор», подключим специалиста."
+            ai.escalate = True
 
-            if session.unclear_streak >= 2 and not ai.escalate:
-                reply += "\n\nПохоже, сложный случай. Напишите «Оператор» — передам в поддержку."
-                ai.escalate = True
+        if not ai.api_error and ai.confidence == "low":
+            session.unclear_streak += 1
+        elif not ai.api_error:
+            session.unclear_streak = 0
 
         await self._reply(event, reply)
 

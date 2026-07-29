@@ -35,7 +35,6 @@ class Settings:
     alert_repeat_delay_sec: float
     allowed_chat_ids: set[int] | None
     log_level: str
-    human_takeover_sec: int
     ai_block_sec: int
     max_concurrent_replies: int
     ai_globally_enabled: bool
@@ -71,12 +70,11 @@ class Settings:
             admin_chat_id=_env_int("ADMIN_CHAT_ID", 8505786243),
             admin_username=_env("ADMIN_USERNAME", "hustlehapp"),
             llm_model=_env("LLM_MODEL", "free-grok-4.5"),
-            max_history_turns=_env_int("MAX_HISTORY_TURNS", 12),
+            max_history_turns=_env_int("MAX_HISTORY_TURNS", 16),
             alert_repeat_count=_env_int("ALERT_REPEAT_COUNT", 3),
             alert_repeat_delay_sec=float(_env("ALERT_REPEAT_DELAY_SEC", "1.2")),
             allowed_chat_ids=allowed,
             log_level=_env("LOG_LEVEL", "INFO").upper(),
-            human_takeover_sec=_env_int("HUMAN_TAKEOVER_SEC", 86400),
             ai_block_sec=_env_int("AI_BLOCK_SEC", 3600),
             max_concurrent_replies=_env_int("MAX_CONCURRENT_REPLIES", 12),
             ai_globally_enabled=_env("AI_GLOBALLY_ENABLED", "true").lower() in {"1", "true", "yes", "on"},

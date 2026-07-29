@@ -68,7 +68,10 @@ VPN_TOPIC_RE = re.compile(
     r"кабинет|node\.satkaconnect|satkavpn|белый\s+список|глушил|"
     r"lte|wifi|wi-?fi|android|iphone|ios|телефон|устройств|"
     r"пробн|триал|реферал|промокод|возврат|чек|оператор|"
-    r"импорт|ссылк|ошибк|не\s+работ"
+    r"импорт|ссылк|ошибк|не\s+работ|помог|проблем|срочн|"
+    r"не\s+могу|не\s+получ|не\s+вижу|не\s+открыв|не\s+заход|"
+    r"купил|оплатил|деньг|рубл|завис|висит|отвал|"
+    r"приложен|программ|настро|включ|выключ|переустанов"
     r")",
     re.IGNORECASE,
 )
@@ -85,8 +88,8 @@ def classify_message(text: str) -> tuple[FilterResult, str | None]:
     if OFF_TOPIC_RE.search(cleaned):
         return "off_topic", OFF_TOPIC_REPLY
 
-    # Длинное сообщение без единого VPN-слова — скорее оффтоп
-    if len(cleaned) > 40 and not VPN_TOPIC_RE.search(cleaned):
+    # Длинное сообщение без единого признака обращения в поддержку — скорее оффтоп
+    if len(cleaned) > 80 and not VPN_TOPIC_RE.search(cleaned):
         return "off_topic", OFF_TOPIC_REPLY
 
     return "ok", None

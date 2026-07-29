@@ -96,9 +96,9 @@ class LlmSupportClient:
             response = self._client.chat.completions.create(
                 model=self._settings.llm_model,
                 messages=self._messages(history, user_message, user_ctx),
-                temperature=0.4,
-                top_p=0.9,
-                max_tokens=700,
+                temperature=0.55,
+                top_p=0.92,
+                max_tokens=1000,
             )
             raw = (response.choices[0].message.content or "").strip()
         except APIStatusError as exc:

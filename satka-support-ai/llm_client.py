@@ -1,4 +1,4 @@
-"""DeepSeek client with Satka support prompt."""
+"""OpenAI-compatible LLM client for Satka support."""
 
 from __future__ import annotations
 
@@ -46,7 +46,7 @@ def _parse_meta(raw: str) -> tuple[str, bool, str]:
 
 def _user_facing_error(exc: Exception) -> str:
     if isinstance(exc, APIStatusError):
-        if exc.status_code == 402:
+        if exc.status_code in {402, 403}:
             return (
                 "Сейчас ассистент на паузе — оператор скоро ответит лично. "
                 "Если срочно, напишите «Оператор»."
@@ -59,13 +59,13 @@ def _user_facing_error(exc: Exception) -> str:
     )
 
 
-class DeepSeekSupportClient:
+class LlmSupportClient:
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
         self._client = OpenAI(
-            api_key=settings.deepseek_api_key,
-            base_url=settings.deepseek_base_url,
-            timeout=45.0,
+            api_key=settings.llm_api_key,
+            base_url=settings.llm_base_url,
+            timeout=60.0,
         )
 
     def _messages(
@@ -94,7 +94,7 @@ class DeepSeekSupportClient:
 
         try:
             response = self._client.chat.completions.create(
-                model=self._settings.deepseek_model,
+                model=self._settings.llm_model,
                 messages=self._messages(history, user_message, user_ctx),
                 temperature=0.4,
                 top_p=0.9,
@@ -102,7 +102,7 @@ class DeepSeekSupportClient:
             )
             raw = (response.choices[0].message.content or "").strip()
         except APIStatusError as exc:
-            logger.error("DeepSeek API %s: %s", exc.status_code, exc.message)
+            logger.error("LLM API %s: %s", exc.status_code, exc.message)
             return AiReply(
                 text=_user_facing_error(exc),
                 escalate=False,
@@ -111,7 +111,7 @@ class DeepSeekSupportClient:
                 api_error=True,
             )
         except Exception as exc:
-            logger.exception("DeepSeek API error")
+            logger.exception("LLM API error")
             return AiReply(
                 text=_user_facing_error(exc),
                 escalate=False,

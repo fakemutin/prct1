@@ -28,7 +28,7 @@ def pack_source(tmp_path: Path) -> Path:
         "auth_session.py",
         "userbot.py",
         "config.py",
-        "deepseek_client.py",
+        "llm_client.py",
         "prompts.py",
         "requirements.txt",
         "Dockerfile",

@@ -15,7 +15,7 @@ from telethon import TelegramClient, events
 from telethon.tl.types import User
 
 from config import Settings
-from deepseek_client import DeepSeekSupportClient, user_requests_operator
+from llm_client import LlmSupportClient, user_requests_operator
 
 logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -35,7 +35,7 @@ class SupportUserbot:
     def __init__(self, settings: Settings, client: TelegramClient) -> None:
         self.settings = settings
         self.client = client
-        self.ai = DeepSeekSupportClient(settings)
+        self.ai = LlmSupportClient(settings)
         self.sessions: dict[int, UserSession] = defaultdict(UserSession)
         self._escalation_cooldown_sec = 300
         self._me_id: int | None = None
@@ -327,7 +327,7 @@ async def run() -> None:
     logger.info(
         "Support userbot online as @%s (model=%s, admin=%s, human_pause=%ss, global_pause=%ss)",
         me.username,
-        settings.deepseek_model,
+        settings.llm_model,
         settings.admin_chat_id,
         settings.human_takeover_sec,
         settings.global_pause_on_manual_sec,

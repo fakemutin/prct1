@@ -21,7 +21,7 @@ from config import Settings
 from llm_client import LlmSupportClient, user_requests_operator
 from message_filters import classify_message
 
-BOT_VERSION = "2026-07-30-v3"
+BOT_VERSION = "2026-07-30-v4"
 
 logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -154,8 +154,24 @@ class SupportUserbot:
 
         return False
 
-    async def _reply(self, event: events.NewMessage.Event, text: str) -> None:
+    async def _mark_read(self, event: events.NewMessage.Event) -> None:
+        try:
+            await self.client.send_read_acknowledge(event.chat_id, max_id=event.message.id)
+        except Exception:
+            logger.debug("mark_read failed for chat %s", event.chat_id, exc_info=True)
+
+    async def _reply(
+        self,
+        event: events.NewMessage.Event,
+        text: str,
+        *,
+        session: UserSession | None = None,
+    ) -> str:
+        await self._mark_read(event)
+        if session is not None:
+            text = with_first_hint(text, first_contact=len(session.history) == 0)
         await event.respond(text, link_preview=False)
+        return text
 
     async def handle_outgoing(self, event: events.NewMessage.Event) -> None:
         # Только команды /ai в Избранном. Ответы оператору в чатах пользователей — игнорируем.
@@ -253,7 +269,12 @@ class SupportUserbot:
             return
 
         if self._chat_is_blocked(event.chat_id):
-            logger.debug("Skipping AI for chat %s — manually blocked", event.chat_id)
+            until = self._blocked_chats_until.get(event.chat_id, 0)
+            logger.info(
+                "Skipping AI for chat %s — manually blocked until %s (use /ai @user unblock)",
+                event.chat_id,
+                time.strftime("%H:%M:%S", time.localtime(until)) if until else "?",
+            )
             return
 
         text = event.message.text.strip()
@@ -268,14 +289,15 @@ class SupportUserbot:
 
         low = text.lower()
         if low in {"/start", "start"}:
-            await self._reply(
-                event,
+            welcome = (
                 "Привет! Поддержка Satka VPN 🤍\n\n"
                 "Помогу с подключением, тарифами, Happ, оплатой, кабинетом, "
                 "скоростью, устройствами, рефералкой и любым вопросом по сервису.\n"
-                "Опишите проблему своими словами.\n\n"
-                "Нужен живой человек — напишите «Оператор».",
+                "Опишите проблему своими словами."
             )
+            sent = await self._reply(event, welcome, session=session)
+            session.history.append({"role": "user", "text": text})
+            session.history.append({"role": "assistant", "text": sent})
             return
 
         if low in {"/help", "help"}:
@@ -283,8 +305,8 @@ class SupportUserbot:
                 event,
                 "Satka VPN — полная поддержка по сервису:\n"
                 "подключение, тарифы, Happ, оплата, кабинет, скорость, устройства, рефералка.\n"
-                "Бот: @satkavpn_bot · Кабинет: node.satkaconnect.xyz\n\n"
-                "Живой оператор: напишите «Оператор»",
+                "Бот: @satkavpn_bot · Кабинет: node.satkaconnect.xyz",
+                session=session,
             )
             return
 
@@ -299,7 +321,7 @@ class SupportUserbot:
         filter_kind, filter_reply = classify_message(text)
         if filter_kind == "manipulation" and filter_reply:
             logger.info("Filtered %s message from user %s", filter_kind, user_id)
-            await self._reply(event, filter_reply)
+            await self._reply(event, filter_reply, session=session)
             return
 
         if operator_requested:
@@ -307,6 +329,7 @@ class SupportUserbot:
                 event,
                 "Передаю оператору. Кратко опишите проблему и приложите скрин из Happ, "
                 "если есть — скоро ответим.",
+                session=session,
             )
             await self._maybe_escalate(
                 session,
@@ -321,9 +344,9 @@ class SupportUserbot:
 
         canned = match_canned(text)
         if canned:
-            await self._reply(event, canned)
+            sent = await self._reply(event, canned, session=session)
             session.history.append({"role": "user", "text": text})
-            session.history.append({"role": "assistant", "text": canned})
+            session.history.append({"role": "assistant", "text": sent})
             return
 
         async with self.client.action(event.chat_id, "typing"):
@@ -341,9 +364,6 @@ class SupportUserbot:
         if self._chat_is_blocked(event.chat_id):
             return
 
-        session.history.append({"role": "user", "text": text})
-        session.history.append({"role": "assistant", "text": ai.text})
-
         reply = ai.text
         if not ai.api_error and session.unclear_streak >= 3 and not ai.escalate:
             reply += "\n\nЕсли не помогло — напишите «Оператор», подключим специалиста."
@@ -354,7 +374,9 @@ class SupportUserbot:
         elif not ai.api_error:
             session.unclear_streak = 0
 
-        await self._reply(event, reply)
+        sent = await self._reply(event, reply, session=session)
+        session.history.append({"role": "user", "text": text})
+        session.history.append({"role": "assistant", "text": sent})
 
         if ai.escalate and not ai.api_error:
             await self._maybe_escalate(

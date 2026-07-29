@@ -28,6 +28,7 @@ def pack_source(tmp_path: Path) -> Path:
         "auth_session.py",
         "userbot.py",
         "canned_responses.py",
+        "knowledge_base.py",
         "config.py",
         "llm_client.py",
         "message_filters.py",
@@ -55,6 +56,7 @@ def main() -> int:
     parser.add_argument("--user", default=os.environ.get("DEPLOY_USER", "root"))
     parser.add_argument("--password", default=os.environ.get("DEPLOY_PASSWORD", ""))
     parser.add_argument("--env-file", default=os.environ.get("ENV_FILE", ""), help="Local .env to upload")
+    parser.add_argument("--llm-key", default=os.environ.get("LLM_API_KEY", ""), help="Update LLM_API_KEY on server")
     args = parser.parse_args()
 
     if not args.password:
@@ -88,6 +90,16 @@ def main() -> int:
             sftp.put(args.env_file, f"{REMOTE_DIR}/.env")
             sftp.close()
             print("Uploaded .env")
+        elif args.llm_key:
+            escaped = args.llm_key.replace("'", "'\\''")
+            run_remote(
+                client,
+                f"test -f {REMOTE_DIR}/.env || cp {REMOTE_DIR}/.env.example {REMOTE_DIR}/.env; "
+                f"grep -q '^LLM_API_KEY=' {REMOTE_DIR}/.env && "
+                f"sed -i 's|^LLM_API_KEY=.*|LLM_API_KEY={escaped}|' {REMOTE_DIR}/.env || "
+                f"echo 'LLM_API_KEY={escaped}' >> {REMOTE_DIR}/.env",
+            )
+            print("Updated LLM_API_KEY on server")
 
         code, out, err = run_remote(
             client,

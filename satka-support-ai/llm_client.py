@@ -9,7 +9,7 @@ from dataclasses import dataclass
 
 from openai import APIStatusError, OpenAI
 
-from canned_responses import GREETING_REPLY, SERVICE_INFO_REPLY, match_canned
+from canned_responses import GREETING_REPLY, SERVICE_INFO_REPLY, match_canned, with_first_hint
 from config import Settings
 from prompts import SYSTEM_PROMPT, build_user_context
 

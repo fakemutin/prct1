@@ -1,0 +1,37 @@
+services:
+  cabinet-frontend:
+    image: ghcr.io/bedolaga-dev/bedolaga-cabinet:latest
+    container_name: cabinet_frontend
+    restart: unless-stopped
+    volumes:
+      - ./cabinet-custom/index.html:/usr/share/nginx/html/index.html:ro
+      - ./cabinet-custom/satka-theme.css:/usr/share/nginx/html/satka-theme.css:ro
+      - ./cabinet-custom/satka-theme-presets.css:/usr/share/nginx/html/satka-theme-presets.css:ro
+      - ./cabinet-custom/satka-i18n.js:/usr/share/nginx/html/satka-i18n.js:ro
+      - ./cabinet-custom/satka-theme-switcher.js:/usr/share/nginx/html/satka-theme-switcher.js:ro
+      - ./cabinet-custom/satka-enhance.js:/usr/share/nginx/html/satka-enhance.js:ro
+      - ./cabinet-custom/satka-fix.js:/usr/share/nginx/html/satka-fix.js:ro
+      - ./cabinet-custom/satka-route.js:/usr/share/nginx/html/satka-route.js:ro
+      - ./cabinet-custom/satka-login-fix.js:/usr/share/nginx/html/satka-login-fix.js:ro
+      - ./cabinet-custom/satka-neutral-meta.js:/usr/share/nginx/html/satka-neutral-meta.js:ro
+      - ./cabinet-custom/satka-desktop-dock.js:/usr/share/nginx/html/satka-desktop-dock.js:ro
+      - ./cabinet-custom/satka-support-ui.js:/usr/share/nginx/html/satka-support-ui.js:ro
+      - ./cabinet-custom/satka-support-ui.css:/usr/share/nginx/html/satka-support-ui.css:ro
+      - ./cabinet-custom/satka-cabinet-api.js:/usr/share/nginx/html/satka-cabinet-api.js:ro
+      - ./cabinet-custom/satka-support-tickets.js:/usr/share/nginx/html/satka-support-tickets.js:ro
+      - ./cabinet-custom/satka-referral-ui.js:/usr/share/nginx/html/satka-referral-ui.js:ro
+      - ./cabinet-custom/satka-referral-ui.css:/usr/share/nginx/html/satka-referral-ui.css:ro
+      - ./cabinet-custom/satka-cabinet-logo.js:/usr/share/nginx/html/satka-cabinet-logo.js:ro
+      - ./cabinet-custom/satka-referral-wheel-cabinet.js:/usr/share/nginx/html/satka-referral-wheel-cabinet.js:ro
+      - ./cabinet-custom/satka-referral-wheel-cabinet.css:/usr/share/nginx/html/satka-referral-wheel-cabinet.css:ro
+      - ./cabinet-custom/satka-cabinet-fx.js:/usr/share/nginx/html/satka-cabinet-fx.js:ro
+      - ./cabinet-custom/satka-cabinet-fx.css:/usr/share/nginx/html/satka-cabinet-fx.css:ro
+      - ./cabinet-custom/logo.svg:/usr/share/nginx/html/logo.svg:ro
+      - ./data/branding/logo.jpg:/usr/share/nginx/html/branding/logo.jpg:ro
+    networks:
+      - bot-network
+
+networks:
+  bot-network:
+    external: true
+    name: bedolaga_bot-network

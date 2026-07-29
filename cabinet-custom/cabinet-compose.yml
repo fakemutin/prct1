@@ -13,6 +13,8 @@ services:
       - ./cabinet-custom/satka-fix.js:/usr/share/nginx/html/satka-fix.js:ro
       - ./cabinet-custom/satka-route.js:/usr/share/nginx/html/satka-route.js:ro
       - ./cabinet-custom/satka-login-fix.js:/usr/share/nginx/html/satka-login-fix.js:ro
+      - ./cabinet-custom/satka-register-success.js:/usr/share/nginx/html/satka-register-success.js:ro
+      - ./cabinet-custom/satka-register-success.css:/usr/share/nginx/html/satka-register-success.css:ro
       - ./cabinet-custom/satka-neutral-meta.js:/usr/share/nginx/html/satka-neutral-meta.js:ro
       - ./cabinet-custom/satka-desktop-dock.js:/usr/share/nginx/html/satka-desktop-dock.js:ro
       - ./cabinet-custom/satka-support-ui.js:/usr/share/nginx/html/satka-support-ui.js:ro

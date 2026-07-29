@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import sys
 import time
 from collections import defaultdict, deque
@@ -23,6 +24,8 @@ logging.basicConfig(
     level=logging.INFO,
 )
 logger = logging.getLogger("satka-support-ai")
+
+AI_USER_CMD = re.compile(r"^/ai\s+@?([A-Za-z0-9_]{3,32})\s+(block|unblock)\s*$", re.IGNORECASE)
 
 
 @dataclass
@@ -51,6 +54,91 @@ class SupportUserbot:
         if not self._ai_enabled:
             return True
         return self._human_chats_until.get(chat_id, 0) > time.time()
+
+    def _pause_chat(self, chat_id: int, seconds: int) -> None:
+        self._human_chats_until[chat_id] = time.time() + seconds
+
+    def _unpause_chat(self, chat_id: int) -> None:
+        self._human_chats_until.pop(chat_id, None)
+
+    async def _saved_messages_reply(self, event: events.NewMessage.Event, text: str) -> None:
+        if self._me_id and event.chat_id == self._me_id:
+            await self.client.send_message(self._me_id, text, link_preview=False)
+
+    async def _handle_saved_commands(self, event: events.NewMessage.Event, text: str) -> bool:
+        if not self._me_id or event.chat_id != self._me_id:
+            return False
+
+        match = AI_USER_CMD.match(text.strip())
+        if match:
+            username = match.group(1)
+            action = match.group(2).lower()
+            try:
+                entity = await self.client.get_entity(username)
+                if not isinstance(entity, User):
+                    await self._saved_messages_reply(event, f"@{username} — не пользователь Telegram.")
+                    return True
+                chat_id = entity.id
+                if action == "block":
+                    secs = self.settings.ai_block_sec
+                    self._pause_chat(chat_id, secs)
+                    hours = secs / 3600
+                    label = f"{int(hours)} ч." if secs % 3600 == 0 else f"{secs // 60} мин."
+                    await self._saved_messages_reply(
+                        event,
+                        f"AI заблокирован для @{username} (id {chat_id}) на {label}",
+                    )
+                    logger.info("Operator blocked AI for @%s (%s) for %ss", username, chat_id, secs)
+                else:
+                    self._unpause_chat(chat_id)
+                    await self._saved_messages_reply(
+                        event,
+                        f"AI разблокирован для @{username} (id {chat_id})",
+                    )
+                    logger.info("Operator unblocked AI for @%s (%s)", username, chat_id)
+            except Exception:
+                logger.exception("Failed to resolve @%s", username)
+                await self._saved_messages_reply(event, f"Не нашёл @{username}. Проверьте username.")
+            return True
+
+        low = text.lower()
+        if low == "/ai off":
+            self._ai_enabled = False
+            await self._saved_messages_reply(event, "AI выключен глобально.")
+            logger.info("AI disabled globally by operator")
+            return True
+        if low == "/ai on":
+            self._ai_enabled = True
+            self._human_chats_until.clear()
+            await self._saved_messages_reply(event, "AI включён. Все блокировки сброшены.")
+            logger.info("AI enabled globally by operator")
+            return True
+        if low in {"/ai resume", "/ai reset"}:
+            self._human_chats_until.clear()
+            await self._saved_messages_reply(event, "Все блокировки по чатам сброшены.")
+            logger.info("All per-chat AI pauses cleared by operator")
+            return True
+        if low == "/ai status":
+            paused = sum(1 for t in self._human_chats_until.values() if t > time.time())
+            await self._saved_messages_reply(
+                event,
+                f"AI: {'ВЫКЛ' if not self._ai_enabled else 'ВКЛ'}\nЧатов на паузе: {paused}",
+            )
+            return True
+        if low == "/ai help":
+            await self._saved_messages_reply(
+                event,
+                "Команды (только в Избранное):\n"
+                "/ai @username block — ИИ не отвечает 1 час\n"
+                "/ai @username unblock — снять блок\n"
+                "/ai on — включить ИИ\n"
+                "/ai off — выключить ИИ\n"
+                "/ai resume — сбросить все блокировки\n"
+                "/ai status — статус",
+            )
+            return True
+
+        return False
 
     def _mark_human_chat(self, chat_id: int) -> None:
         if self._me_id and chat_id == self._me_id:
@@ -144,37 +232,16 @@ class SupportUserbot:
             return
 
         text = (event.message.text or "").strip()
-        low = text.lower()
+        if not text:
+            return
 
-        # Operator control commands (from support account, e.g. Saved Messages)
-        if low == "/ai off":
-            self._ai_enabled = False
-            logger.info("AI disabled globally by operator")
-            return
-        if low == "/ai on":
-            self._ai_enabled = True
-            self._human_chats_until.clear()
-            logger.info("AI enabled globally by operator")
-            return
-        if low in {"/ai resume", "/ai reset"}:
-            self._human_chats_until.clear()
-            logger.info("All per-chat AI pauses cleared by operator")
-            if event.is_private and event.chat_id == self._me_id:
-                await event.respond("AI снова отвечает всем клиентам (кроме чатов, где вы писали вручную).")
-            return
-        if low == "/ai status":
-            paused = not self._ai_enabled
-            await event.edit(
-                f"AI: {'ВЫКЛ' if paused else 'ВКЛ'}\n"
-                f"Чатов на паузе: {sum(1 for t in self._human_chats_until.values() if t > time.time())}"
-            )
+        if await self._handle_saved_commands(event, text):
             return
 
         if event.message.id in self._ai_sent_ids:
             return
 
-        if text:
-            self._mark_human_chat(event.chat_id)
+        self._mark_human_chat(event.chat_id)
 
     async def handle_message(self, event: events.NewMessage.Event) -> None:
         if not event.is_private or not event.message or not event.message.text:

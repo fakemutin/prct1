@@ -12,7 +12,7 @@ RUN apt-get update \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY config.py llm_client.py message_filters.py prompts.py auth_session.py userbot.py ./
+COPY config.py llm_client.py message_filters.py prompts.py knowledge_base.py canned_responses.py auth_session.py userbot.py ./
 
 RUN mkdir -p sessions
 

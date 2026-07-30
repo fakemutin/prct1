@@ -46,6 +46,26 @@ LAUGHTER_RE = re.compile(
     re.IGNORECASE,
 )
 
+BANTER_RE = re.compile(
+    r"(шо\s+ты|фу\s+бяка|не\s+интересн|ты\s+маленьк|бяка|скучн|фигня|фигн)",
+    re.IGNORECASE,
+)
+
+AFFECTION_RE = re.compile(
+    r"(люблю\s+тебя|обожаю\s+тебя|ты\s+лучш|ты\s+крут|ты\s+класс)",
+    re.IGNORECASE,
+)
+
+WRITE_WORD_RE = re.compile(
+    r"^напиш\w*\s+([а-яёa-z0-9][а-яёa-z0-9\s\-]{0,40})$",
+    re.IGNORECASE,
+)
+
+_INSULT_WORD_RE = re.compile(
+    r"(пидар|пидор|ебан|хуй|сука|мудак|дебил|идиот|говн|урод|мраз|чмо)",
+    re.IGNORECASE,
+)
+
 # Подписка / подключение — приоритет выше «расскажите о сервисе»
 SUBSCRIPTION_RE = re.compile(
     r"("
@@ -170,8 +190,23 @@ COMPLIMENT_REPLY = (
 )
 
 LAUGHTER_REPLY = (
-    "😄 Рад, что поднял настроение!\n"
-    "Если по Satka VPN есть вопрос — спрашивайте."
+    "😄 Ха-ха, заразили!\n"
+    "Если по Satka VPN что-то нужно — я тут."
+)
+
+BANTER_REPLY = (
+    "Ну я стараюсь 🙂 Если скучно — давайте по делу: "
+    "подключение, тарифы, Happ — чем помочь?"
+)
+
+AFFECTION_REPLY = (
+    "Спасибо, приятно слышать! 🙌\n"
+    "Я тут по Satka VPN — если что, пишите."
+)
+
+CASUAL_CHAT_REPLY = (
+    "Я на связи 🙂 По Satka VPN помогу с чем угодно — "
+    "подключение, тарифы, Happ. Или просто спросите, как дела."
 )
 
 STICKER_REPLY = (
@@ -202,6 +237,33 @@ def is_greeting_word(text: str) -> bool:
     return _is_greeting(text)
 
 
+def looks_like_laughter(text: str) -> bool:
+    """Смех с кривой раскладкой: АХХАХПХАХА и т.п."""
+    cleaned = re.sub(r"[\s!.?,]+", "", (text or "").strip())
+    if len(cleaned) < 4:
+        return False
+    if LAUGHTER_RE.match((text or "").strip()):
+        return True
+    ha = sum(1 for c in cleaned.lower() if c in "аххpхa")
+    return ha / len(cleaned) >= 0.55
+
+
+def match_write_word_reply(text: str) -> str | None:
+    """«напиши мамонт» без кавычек → «ВЫ МАМОНТ»."""
+    match = WRITE_WORD_RE.match((text or "").strip())
+    if not match:
+        return None
+    phrase = match.group(1).strip()
+    if not phrase or len(phrase) > 40:
+        return None
+    if _INSULT_WORD_RE.search(phrase):
+        return None
+    if re.match(r"^я\s+", phrase, re.IGNORECASE):
+        rest = re.sub(r"^я\s+", "", phrase, flags=re.IGNORECASE).strip()
+        return f"ВЫ {rest.upper()}"
+    return f"ВЫ {phrase.upper()}"
+
+
 def with_first_hint(text: str, *, first_contact: bool) -> str:
     if not first_contact or "оператор" in text.lower():
         return text
@@ -219,8 +281,18 @@ def match_canned(text: str, *, already_greeted: bool = False) -> str | None:
     if CASUAL_RE.match(cleaned):
         return GREETING_AGAIN_REPLY if already_greeted else CASUAL_REPLY
 
-    if LAUGHTER_RE.match(cleaned):
+    if looks_like_laughter(cleaned):
         return LAUGHTER_REPLY
+
+    write_word = match_write_word_reply(cleaned)
+    if write_word:
+        return write_word
+
+    if BANTER_RE.search(cleaned):
+        return BANTER_REPLY
+
+    if AFFECTION_RE.search(cleaned):
+        return AFFECTION_REPLY
 
     if FAREWELL_RE.search(cleaned):
         return FAREWELL_REPLY

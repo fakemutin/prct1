@@ -21,7 +21,7 @@ from config import Settings
 from llm_client import LlmSupportClient, user_requests_operator
 from message_filters import classify_message, match_troll_reply
 
-BOT_VERSION = "2026-07-30-v7-groq"
+BOT_VERSION = "2026-07-31-v8-queue"
 
 logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -50,9 +50,9 @@ class SupportUserbot:
         self._me_id: int | None = None
         self._blocked_chats_until: dict[int, float] = {}
         self._ai_enabled: bool = settings.ai_globally_enabled
-        self._chat_locks: dict[int, asyncio.Lock] = defaultdict(asyncio.Lock)
         self._llm_sem = asyncio.Semaphore(settings.max_concurrent_replies)
-        self._active_tasks: set[asyncio.Task] = set()
+        self._chat_queues: dict[int, asyncio.Queue[events.NewMessage.Event]] = {}
+        self._chat_workers: dict[int, asyncio.Task] = {}
 
     async def _keep_online_loop(self) -> None:
         while True:
@@ -171,7 +171,11 @@ class SupportUserbot:
         await self._mark_read(event)
         if session is not None:
             text = with_first_hint(text, first_contact=len(session.history) == 0)
-        await event.respond(text, link_preview=False)
+        await event.respond(
+            text,
+            reply_to=event.message.id,
+            link_preview=False,
+        )
         return text
 
     async def handle_outgoing(self, event: events.NewMessage.Event) -> None:
@@ -258,7 +262,30 @@ class SupportUserbot:
             last_message=last_message,
         )
 
-    async def handle_message(self, event: events.NewMessage.Event) -> None:
+    async def _process_chat_queue(self, chat_id: int) -> None:
+        queue = self._chat_queues[chat_id]
+        while True:
+            event = await queue.get()
+            try:
+                await self._handle_message_inner(event)
+            except Exception:
+                logger.exception("Handler error for chat %s", chat_id)
+            finally:
+                queue.task_done()
+
+    def _enqueue_message(self, event: events.NewMessage.Event) -> None:
+        chat_id = event.chat_id
+        if chat_id not in self._chat_queues:
+            self._chat_queues[chat_id] = asyncio.Queue()
+        self._chat_queues[chat_id].put_nowait(event)
+        worker = self._chat_workers.get(chat_id)
+        if worker is None or worker.done():
+            self._chat_workers[chat_id] = asyncio.create_task(
+                self._process_chat_queue(chat_id),
+                name=f"support-chat-{chat_id}",
+            )
+
+    async def _handle_message_inner(self, event: events.NewMessage.Event) -> None:
         if not event.is_private or not event.message:
             return
 
@@ -414,23 +441,12 @@ class SupportUserbot:
                 force=operator_requested,
             )
 
-    async def _handle_message_safe(self, event: events.NewMessage.Event) -> None:
-        chat_id = event.chat_id
-        async with self._chat_locks[chat_id]:
-            try:
-                await self.handle_message(event)
-            except Exception:
-                logger.exception("Handler error for chat %s", chat_id)
-
-    def _spawn_task(self, coro) -> None:
-        task = asyncio.create_task(coro)
-        self._active_tasks.add(task)
-        task.add_done_callback(self._active_tasks.discard)
-
     def register_handlers(self) -> None:
         @self.client.on(events.NewMessage(incoming=True))
         async def on_incoming(event: events.NewMessage.Event) -> None:
-            self._spawn_task(self._handle_message_safe(event))
+            if not event.is_private or not event.message:
+                return
+            self._enqueue_message(event)
 
         @self.client.on(events.NewMessage(outgoing=True))
         async def on_outgoing(event: events.NewMessage.Event) -> None:

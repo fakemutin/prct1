@@ -10,9 +10,9 @@ from dataclasses import dataclass
 
 from openai import APIStatusError, OpenAI
 
-from canned_responses import BUSY_REPLY, match_canned
+from canned_responses import BUSY_REPLY, CASUAL_CHAT_REPLY, match_canned
 from config import Settings
-from message_filters import CODE_REQUEST_REPLY, WARM_REDIRECT_REPLY
+from message_filters import CODE_REQUEST_REPLY, WARM_REDIRECT_REPLY, match_troll_reply
 from prompts import SYSTEM_PROMPT, build_user_context
 
 logger = logging.getLogger(__name__)
@@ -84,6 +84,14 @@ def _user_facing_error(exc: Exception) -> str:
     )
 
 
+def _rate_limit_fallback(user_message: str) -> str:
+    for resolver in (match_canned, match_troll_reply):
+        hit = resolver(user_message)
+        if hit:
+            return hit
+    return CASUAL_CHAT_REPLY
+
+
 class LlmSupportClient:
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
@@ -108,7 +116,7 @@ class LlmSupportClient:
 
     def _call_llm(self, messages: list[dict[str, str]]) -> str:
         last_exc: Exception | None = None
-        for attempt in range(3):
+        for attempt in range(5):
             try:
                 response = self._client.chat.completions.create(
                     model=self._settings.llm_model,
@@ -120,8 +128,8 @@ class LlmSupportClient:
                 return (response.choices[0].message.content or "").strip()
             except APIStatusError as exc:
                 last_exc = exc
-                if exc.status_code == 429 and attempt < 2:
-                    time.sleep(2 ** attempt + 1)
+                if exc.status_code == 429 and attempt < 4:
+                    time.sleep(min(2 ** attempt + 1, 12))
                     continue
                 raise
         raise last_exc  # type: ignore[misc]
@@ -149,10 +157,13 @@ class LlmSupportClient:
         except APIStatusError as exc:
             logger.error("LLM API %s: %s", exc.status_code, exc.message)
             if exc.status_code == 429:
-                fallback = match_canned(user_message)
-                if fallback:
-                    return AiReply(text=fallback, escalate=False, confidence="high", raw=str(exc), api_error=False)
-                return AiReply(text=BUSY_REPLY, escalate=False, confidence="medium", raw=str(exc), api_error=False)
+                return AiReply(
+                    text=_rate_limit_fallback(user_message),
+                    escalate=False,
+                    confidence="medium",
+                    raw=str(exc),
+                    api_error=False,
+                )
             return AiReply(
                 text=_user_facing_error(exc),
                 escalate=False,

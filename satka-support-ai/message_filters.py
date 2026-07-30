@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from typing import Literal
 
-from canned_responses import is_greeting_word
+from canned_responses import is_greeting_word, looks_like_laughter
 
 FilterResult = Literal["ok", "manipulation", "off_topic"]
 
@@ -180,7 +180,7 @@ def _is_gibberish(text: str) -> bool:
         return False
     if is_greeting_word(cleaned):
         return False
-    if LAUGHTER_RE.match(cleaned):
+    if looks_like_laughter(cleaned):
         return False
     if " " in cleaned:
         return False
@@ -203,7 +203,7 @@ def classify_message(text: str) -> tuple[FilterResult, str | None]:
     if is_greeting_word(cleaned):
         return "ok", None
 
-    if LAUGHTER_RE.match(cleaned):
+    if looks_like_laughter(cleaned):
         return "ok", None
 
     if MANIPULATION_RE.search(cleaned):

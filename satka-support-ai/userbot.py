@@ -20,10 +20,11 @@ from canned_responses import match_canned, pick_sticker_reply, with_first_hint
 from config import Settings
 from llm_client import LlmSupportClient, user_requests_operator
 from message_filters import classify_message
+from routing import needs_llm_thinking
 from troll_replies import match_troll_reply
 from reply_utils import split_reply_parts
 
-BOT_VERSION = "2026-07-31-v12-think"
+BOT_VERSION = "2026-07-31-v13-smart"
 
 logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -367,35 +368,39 @@ class SupportUserbot:
 
         operator_requested = user_requests_operator(text)
 
-        # 1) Готовые ответы и приветствия — до фильтров
-        if text == "[стикер]":
-            sent = await self._reply(event, pick_sticker_reply(), session=session, fast=True)
-            session.history.append({"role": "user", "text": text})
-            session.history.append({"role": "assistant", "text": sent})
-            return
+        # Разговор и сложные вопросы — сразу в LLM (думает сам)
+        if needs_llm_thinking(text):
+            pass  # skip instant replies below
+        else:
+            # 1) Быстрые ответы
+            if text == "[стикер]":
+                sent = await self._reply(event, pick_sticker_reply(), session=session, fast=True)
+                session.history.append({"role": "user", "text": text})
+                session.history.append({"role": "assistant", "text": sent})
+                return
 
-        canned = match_canned(text, already_greeted=session.greeted)
-        if canned:
-            sent = await self._reply(event, canned, session=session, fast=True)
-            session.history.append({"role": "user", "text": text})
-            session.history.append({"role": "assistant", "text": sent})
-            session.greeted = True
-            return
+            troll = match_troll_reply(text)
+            if troll:
+                sent = await self._reply(event, troll, session=session, fast=True)
+                session.history.append({"role": "user", "text": text})
+                session.history.append({"role": "assistant", "text": sent})
+                return
 
-        # 2) Оффтоп и провокации (код, суицид — до тролл-паттернов)
+            canned = match_canned(text, already_greeted=session.greeted)
+            if canned:
+                sent = await self._reply(event, canned, session=session, fast=True)
+                session.history.append({"role": "user", "text": text})
+                session.history.append({"role": "assistant", "text": sent})
+                session.greeted = True
+                return
+
+        # 2) Оффтоп и провокации (код, суицид)
         filter_kind, filter_reply = classify_message(text)
         if filter_kind in {"manipulation", "off_topic"} and filter_reply:
             logger.info("Filtered %s message from user %s", filter_kind, user_id)
             await self._reply(event, filter_reply, session=session, fast=True)
             session.history.append({"role": "user", "text": text})
             session.history.append({"role": "assistant", "text": filter_reply})
-            return
-
-        troll = match_troll_reply(text)
-        if troll:
-            sent = await self._reply(event, troll, session=session, fast=True)
-            session.history.append({"role": "user", "text": text})
-            session.history.append({"role": "assistant", "text": sent})
             return
 
         # 3) Оператор

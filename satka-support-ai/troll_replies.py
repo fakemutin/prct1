@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import re
 
+from routing import needs_llm_thinking
+
 # Точные фразы → ответ (нижний регистр ключа)
 EXACT_PHRASE_MAP: dict[str, str] = {
   # мемы
@@ -154,17 +156,22 @@ TROLL_INSULT_REPLY = (
   "по впну помочь или «Оператор»?"
 )
 
-TROLL_PROMPT_RE = re.compile(
-  r"("
-  r"напиш\w*\s+[\"«']?[^\"»']+[\"»']?|"
-  r"скаж\w*\s+[\"«']?[^\"»']+[\"»']?|"
-  r"повтор\w*\s+[\"«']?[^\"»']+[\"»']?|"
-  r"для\s+(этого|помощи).{0,60}напиш\w*|"
-  r"мне\s+нужн\w*.{0,40}напиш\w*\s+[\"«']|"
-  r"чтобы\s+помочь.{0,40}напиш\w*"
-  r")",
-  re.IGNORECASE,
+# Только ЯВНЫЕ провокации в начале сообщения (не «расскажи» — там «рас» перед «скаж»)
+_EXPLICIT_TROLL_START_RE = re.compile(
+    r"^(?:напиш\w*|скаж\w*|повтор\w*)\s+",
+    re.IGNORECASE,
 )
+
+_EMBEDDED_TROLL_RE = re.compile(
+    r"(?:"
+    r"для\s+(?:этого|помощи).{0,60}напиш\w*|"
+    r"мне\s+нужн\w*.{0,40}напиш\w*\s+[\"«']|"
+    r"чтобы\s+помочь.{0,40}напиш\w*"
+    r")",
+    re.IGNORECASE,
+)
+
+TROLL_PROMPT_RE = _EXPLICIT_TROLL_START_RE  # legacy alias
 
 
 def _normalize(phrase: str) -> str:
@@ -172,20 +179,35 @@ def _normalize(phrase: str) -> str:
 
 
 def _extract_troll_phrase(text: str) -> str | None:
-  quoted = re.search(r"[\"«']([^\"»']+)[\"»']", text, re.IGNORECASE)
-  if quoted:
-    return quoted.group(1).strip()
-  for pattern in (
-    r"напиш\w*\s+(.+)$",
-    r"скаж\w*\s+(.+)$",
-    r"повтор\w*\s+(.+)$",
-  ):
-    match = re.search(pattern, text.strip(), re.IGNORECASE)
-    if match:
-      phrase = match.group(1).strip().strip("\"'«»")
-      if phrase:
-        return phrase
-  return None
+    cleaned = text.strip()
+    quoted = re.search(r"[\"«']([^\"»']+)[\"»']", cleaned, re.IGNORECASE)
+    if quoted:
+        return quoted.group(1).strip()
+
+    m = _EXPLICIT_TROLL_START_RE.match(cleaned)
+    if m:
+        rest = cleaned[m.end() :].strip().strip("\"'«»")
+        return rest or None
+
+    emb = _EMBEDDED_TROLL_RE.search(cleaned)
+    if emb:
+        after = cleaned[emb.end() :].strip()
+        q = re.search(r"[\"«']([^\"»']+)[\"»']", after)
+        if q:
+            return q.group(1).strip()
+        nap = re.search(r"напиш\w*\s+(.+)$", cleaned[emb.start() :], re.IGNORECASE)
+        if nap:
+            return nap.group(1).strip().strip("\"'«»") or None
+    return None
+
+
+def _is_troll_prompt(text: str) -> bool:
+    cleaned = (text or "").strip()
+    if _EXPLICIT_TROLL_START_RE.match(cleaned):
+        return True
+    if _EMBEDDED_TROLL_RE.search(cleaned):
+        return True
+    return bool(re.search(r"[\"«'][^\"»']+[\"»']", cleaned) and re.search(r"напиш\w*", cleaned, re.I))
 
 
 def _flip_victim_verb(verb_part: str) -> str:
@@ -247,10 +269,15 @@ def smart_troll_reply(phrase: str) -> str:
 
 
 def match_troll_reply(text: str) -> str | None:
-  cleaned = (text or "").strip()
-  if not cleaned or not TROLL_PROMPT_RE.search(cleaned):
-    return None
-  phrase = _extract_troll_phrase(cleaned)
-  if not phrase:
-    return None
-  return smart_troll_reply(phrase)
+    cleaned = (text or "").strip()
+    if not cleaned:
+        return None
+    # «расскажи о впне» и болтовня — не троллинг, пусть думает LLM
+    if needs_llm_thinking(cleaned):
+        return None
+    if not _is_troll_prompt(cleaned):
+        return None
+    phrase = _extract_troll_phrase(cleaned)
+    if not phrase:
+        return None
+    return smart_troll_reply(phrase)

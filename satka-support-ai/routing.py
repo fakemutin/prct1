@@ -31,10 +31,39 @@ VPN_INSTANT_RE = re.compile(
 )
 
 
+_EMBEDDED_TROLL_RE = re.compile(
+    r"для\s+(?:этого|помощи).{0,60}напиш\w*",
+    re.IGNORECASE,
+)
+
+_EXPLICIT_TROLL_START_RE = re.compile(
+    r"^(?:напиш\w*|скаж\w*|повтор\w*)\s+",
+    re.IGNORECASE,
+)
+
+
+def _is_explicit_troll_only(text: str) -> bool:
+    """«…для этого напиши "мамонт"» — троллинг, не болтовня."""
+    if re.search(
+        r"(?:расскаж|поболта|поговор|чем\s+лучше|о\s+чем\s+дума|икай)",
+        text,
+        re.I,
+    ):
+        return False
+    if _EMBEDDED_TROLL_RE.search(text):
+        return True
+    if _EXPLICIT_TROLL_START_RE.match(text) and len(text) < 100:
+        return True
+    return False
+
+
 def needs_llm_thinking(text: str) -> bool:
     """Сообщение требует осмысленного ответа от LLM, не шаблона."""
     cleaned = (text or "").strip()
     if not cleaned or cleaned == "[стикер]":
+        return False
+
+    if _is_explicit_troll_only(cleaned):
         return False
 
     # VPN-проблемы и инструкции — шаблоны точнее
@@ -59,6 +88,10 @@ def needs_llm_thinking(text: str) -> bool:
     if re.search(r"как\s+дела", cleaned, re.I) and len(cleaned) > 20:
         return True
     if re.search(r"расскаж", cleaned, re.I):
+        return True
+    if re.search(r"тупой|дебил|идиот|быдл|долбо", cleaned, re.I) and len(cleaned) > 8:
+        return True
+    if re.search(r"икай|не\s+неси|не\s+гони", cleaned, re.I):
         return True
 
     return False

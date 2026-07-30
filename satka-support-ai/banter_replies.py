@@ -5,6 +5,8 @@ from __future__ import annotations
 import random
 import re
 
+from routing import needs_llm_thinking
+
 # --- Точные фразы ---
 EXACT: dict[str, str] = {
   "сосал?": "не, а ты? 😄",
@@ -223,56 +225,60 @@ def _handle_identity(word: str) -> str | None:
 
 
 def match_banter(text: str) -> str | None:
-  cleaned = (text or "").strip()
-  if not cleaned:
+    cleaned = (text or "").strip()
+    if not cleaned:
+        return None
+
+    # Длинные / разговорные — LLM
+    if needs_llm_thinking(cleaned):
+        return None
+
+    low = cleaned.lower().rstrip("!?.…")
+
+    exact = EXACT.get(cleaned) or EXACT.get(low)
+    if exact:
+        return exact
+
+    # только эмодзи (1-3 символа)
+    if len(cleaned) <= 4 and not cleaned.isascii() and not re.search(r"[a-zа-яё]", cleaned, re.I):
+        if "🦣" in cleaned or "🐘" in cleaned:
+            return "ВЫ МАМОНТ"
+        if "🤡" in cleaned:
+            return "ВЫ КЛОУН"
+        return random.choice([
+            "ого 😄",
+            "вижу 👀|||SPLIT|||чё надо?",
+            "красиво 😄|||SPLIT|||пиши текстом",
+        ])
+
+    for pattern, reply in PATTERNS:
+        m = pattern.search(cleaned)
+        if not m:
+            continue
+        if reply == "_identity":
+            return _handle_identity(m.group(1))
+        if reply == "_pay_me":
+            return random.choice(_PAY_ME_REPLIES)
+        if reply == "_math":
+            return _handle_math(cleaned)
+        if reply == "_feelings":
+            return _FEELINGS_REPLY
+        if reply == "_bot_q":
+            return random.choice(_BOT_Q_REPLIES)
+        if reply == "_skills":
+            return _SKILLS_REPLY
+        if reply == "_who":
+            return _WHO_REPLY
+        if reply == "_age":
+            return "вечно молод 😄|||SPLIT|||чё по впну?"
+        if reply == "_where":
+            return "в тг, тут же с тобой 😄"
+        if reply == "_here":
+            return _HERE_REPLY
+        if reply == "_alive":
+            return "настолько живой, насколько бывает поддержка 😄"
+        if isinstance(reply, list):
+            return random.choice(reply)
+        return reply
+
     return None
-
-  low = cleaned.lower().rstrip("!?.…")
-
-  exact = EXACT.get(cleaned) or EXACT.get(low)
-  if exact:
-    return exact
-
-  # только эмодзи (1-3 символа)
-  if len(cleaned) <= 4 and not cleaned.isascii() and not re.search(r"[a-zа-яё]", cleaned, re.I):
-    if "🦣" in cleaned or "🐘" in cleaned:
-      return "ВЫ МАМОНТ"
-    if "🤡" in cleaned:
-      return "ВЫ КЛОУН"
-    return random.choice([
-      "ого 😄",
-      "вижу 👀|||SPLIT|||чё надо?",
-      "красиво 😄|||SPLIT|||пиши текстом",
-    ])
-
-  for pattern, reply in PATTERNS:
-    m = pattern.search(cleaned)
-    if not m:
-      continue
-    if reply == "_identity":
-      return _handle_identity(m.group(1))
-    if reply == "_pay_me":
-      return random.choice(_PAY_ME_REPLIES)
-    if reply == "_math":
-      return _handle_math(cleaned)
-    if reply == "_feelings":
-      return _FEELINGS_REPLY
-    if reply == "_bot_q":
-      return random.choice(_BOT_Q_REPLIES)
-    if reply == "_skills":
-      return _SKILLS_REPLY
-    if reply == "_who":
-      return _WHO_REPLY
-    if reply == "_age":
-      return "вечно молод 😄|||SPLIT|||чё по впну?"
-    if reply == "_where":
-      return "в тг, тут же с тобой 😄"
-    if reply == "_here":
-      return _HERE_REPLY
-    if reply == "_alive":
-      return "настолько живой, насколько бывает поддержка 😄"
-    if isinstance(reply, list):
-      return random.choice(reply)
-    return reply
-
-  return None

@@ -33,6 +33,10 @@ WHITELIST_URL = os.environ.get(
 )
 # Платная подписка: static | candelix | sinful (бесплатные extras остаются на sinful)
 PAID_WHITELIST_SOURCE = os.environ.get("PAID_WHITELIST_SOURCE", "static").lower()
+# Временно отключены — включить: WHITELIST_SERVERS_ENABLED=true
+WHITELIST_SERVERS_ENABLED = os.environ.get(
+    "WHITELIST_SERVERS_ENABLED", "false"
+).lower() in ("1", "true", "yes")
 WHITELIST_VLESS_FILE = os.environ.get(
     "WHITELIST_VLESS_FILE", "/app/whitelist-vless.json"
 )
@@ -2356,17 +2360,18 @@ def build_free_extra_servers(token: str) -> list:
     out: list[dict] = []
     wl_natives = fetch_torrent_exit_natives(token)
     bridge_cfg = resolve_bridge_cfg_for_token(token)
-    wl_items = fetch_whitelist_json()
-    if len(wl_items) > FREE_EXTRA_WHITELIST_INDEX:
-        out.append(
-            prepare_whitelist_cfg(
-                wl_items[FREE_EXTRA_WHITELIST_INDEX],
-                FREE_EXTRA_WHITELIST_NO,
-                wl_items,
-                natives=wl_natives,
-                bridge_cfg=bridge_cfg,
+    if whitelist_servers_enabled():
+        wl_items = fetch_whitelist_json()
+        if len(wl_items) > FREE_EXTRA_WHITELIST_INDEX:
+            out.append(
+                prepare_whitelist_cfg(
+                    wl_items[FREE_EXTRA_WHITELIST_INDEX],
+                    FREE_EXTRA_WHITELIST_NO,
+                    wl_items,
+                    natives=wl_natives,
+                    bridge_cfg=bridge_cfg,
+                )
             )
-        )
 
     template = fetch_free_bridge_template(token)
     if not template:
@@ -2404,6 +2409,8 @@ def append_whitelist_subset(
     bridge_cfg: dict | None = None,
 ) -> int:
     """Подмножество белых списков с автовыбором."""
+    if not whitelist_servers_enabled():
+        return server_no
     use_candelix = paid_whitelist_from_candelix()
     items = fetch_paid_whitelist_json()
     prepared: dict[int, dict] = {}
@@ -2442,6 +2449,10 @@ def append_whitelist_subset(
     return server_no
 
 
+def whitelist_servers_enabled() -> bool:
+    return WHITELIST_SERVERS_ENABLED
+
+
 def append_whitelist_paid(
     result: list,
     server_no: int,
@@ -2450,6 +2461,8 @@ def append_whitelist_paid(
     bridge_cfg: dict | None = None,
 ) -> int:
     """Белые списки в платной подписке (static / Candelix / sinful)."""
+    if not whitelist_servers_enabled():
+        return server_no
     use_candelix = paid_whitelist_from_candelix()
     items = fetch_paid_whitelist_json()
     prepared: dict[int, dict] = {}
@@ -2579,10 +2592,11 @@ def merge_subscription(
     result = []
     server_no = 0
 
-    result.append(build_separator_cfg(SECTION_WHITELIST))
-    server_no = append_whitelist_paid(
-        result, server_no, natives=natives, bridge_cfg=bridge_cfg
-    )
+    if whitelist_servers_enabled():
+        result.append(build_separator_cfg(SECTION_WHITELIST))
+        server_no = append_whitelist_paid(
+            result, server_no, natives=natives, bridge_cfg=bridge_cfg
+        )
 
     stable, unstable_sep, unstable = split_location_sections(locations)
     stable_by_number = locations_by_number(stable)
@@ -2657,16 +2671,17 @@ def merge_mom_subscription(
     result: list[dict] = []
     server_no = 0
 
-    result.append(build_separator_cfg(SECTION_MOM_WHITELIST))
-    server_no = append_whitelist_subset(
-        result,
-        server_no,
-        numbers=MOM_WHITELIST_NUMBERS,
-        auto_pool=MOM_WHITELIST_NUMBERS,
-        natives=natives,
-        remark_formatter=format_mom_whitelist_remark,
-        bridge_cfg=bridge_cfg,
-    )
+    if whitelist_servers_enabled():
+        result.append(build_separator_cfg(SECTION_MOM_WHITELIST))
+        server_no = append_whitelist_subset(
+            result,
+            server_no,
+            numbers=MOM_WHITELIST_NUMBERS,
+            auto_pool=MOM_WHITELIST_NUMBERS,
+            natives=natives,
+            remark_formatter=format_mom_whitelist_remark,
+            bridge_cfg=bridge_cfg,
+        )
 
     stable, _, _ = split_location_sections(locations)
     stable_by_number = {int(loc["number"]): loc for loc in stable}
@@ -2722,6 +2737,8 @@ def merge_mom_vless_base64(
 def merge_whitelist_subscription(token: str = "") -> list:
     if not is_subscription_active(token):
         return [build_expired_notice_cfg()]
+    if not whitelist_servers_enabled():
+        return [build_separator_cfg("Белые списки временно недоступны")]
 
     natives = fetch_torrent_exit_natives(token)
     bridge_cfg = resolve_bridge_cfg_for_token(token)
@@ -2829,7 +2846,11 @@ def merge_mihomo_yaml(token: str, client_headers: dict | None = None) -> str:
     elif cand_map:
         template_proxy = next(iter(cand_map.values()))
     else:
-        wl_fallback = fetch_whitelist_mihomo_proxies(via_bridge=True)
+        wl_fallback = (
+            fetch_whitelist_mihomo_proxies(via_bridge=True)
+            if whitelist_servers_enabled()
+            else {}
+        )
         if not wl_fallback:
             raise ValueError("No Mihomo proxies available for subscription")
         template_proxy = next(iter(wl_fallback.values()))
@@ -2839,37 +2860,40 @@ def merge_mihomo_yaml(token: str, client_headers: dict | None = None) -> str:
     ordered_names: list[str] = []
     lb_groups: list[dict] = []
 
-    wl_proxies = fetch_whitelist_mihomo_proxies(via_bridge=True)
-    wl_prepared: dict[int, tuple[dict, str]] = {}
-    for number in WHITELIST_NUMBERS:
-        proxy = wl_proxies.get(number)
-        if not proxy:
-            continue
-        remark = proxy["name"]
-        wl_prepared[number] = (proxy, remark)
+    if whitelist_servers_enabled():
+        wl_proxies = fetch_whitelist_mihomo_proxies(via_bridge=True)
+        wl_prepared: dict[int, tuple[dict, str]] = {}
+        for number in WHITELIST_NUMBERS:
+            proxy = wl_proxies.get(number)
+            if not proxy:
+                continue
+            remark = proxy["name"]
+            wl_prepared[number] = (proxy, remark)
 
-    wl_pool = [n for n in WHITELIST_AUTO_POOL if n in wl_prepared]
-    if wl_pool:
-        wl_lb_members = [wl_prepared[n][1] for n in WHITELIST_AUTO_POOL if n in wl_prepared]
-        if wl_lb_members:
-            lb_groups.append(
-                {
-                    "name": AUTO_WHITELIST_REMARK,
-                    "type": "url-test",
-                    "url": "http://www.gstatic.com/generate_204",
-                    "interval": 300,
-                    "tolerance": 50,
-                    "proxies": wl_lb_members,
-                }
-            )
-        ordered_names.append(AUTO_WHITELIST_REMARK)
+        wl_pool = [n for n in WHITELIST_AUTO_POOL if n in wl_prepared]
+        if wl_pool:
+            wl_lb_members = [
+                wl_prepared[n][1] for n in WHITELIST_AUTO_POOL if n in wl_prepared
+            ]
+            if wl_lb_members:
+                lb_groups.append(
+                    {
+                        "name": AUTO_WHITELIST_REMARK,
+                        "type": "url-test",
+                        "url": "http://www.gstatic.com/generate_204",
+                        "interval": 300,
+                        "tolerance": 50,
+                        "proxies": wl_lb_members,
+                    }
+                )
+            ordered_names.append(AUTO_WHITELIST_REMARK)
 
-    for number in WHITELIST_NUMBERS:
-        if number not in wl_prepared:
-            continue
-        proxy, remark = wl_prepared[number]
-        ordered_proxies.append(proxy)
-        ordered_names.append(remark)
+        for number in WHITELIST_NUMBERS:
+            if number not in wl_prepared:
+                continue
+            proxy, remark = wl_prepared[number]
+            ordered_proxies.append(proxy)
+            ordered_names.append(remark)
 
     stable, unstable_sep, unstable = split_location_sections(locations)
     stable_by_number = locations_by_number(stable)

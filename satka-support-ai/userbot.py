@@ -20,8 +20,9 @@ from canned_responses import STICKER_REPLY, match_canned, with_first_hint
 from config import Settings
 from llm_client import LlmSupportClient, user_requests_operator
 from message_filters import classify_message, match_troll_reply
+from reply_utils import split_reply_parts
 
-BOT_VERSION = "2026-07-31-v8-queue"
+BOT_VERSION = "2026-07-31-v9-human"
 
 logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -167,16 +168,27 @@ class SupportUserbot:
         text: str,
         *,
         session: UserSession | None = None,
+        fast: bool = False,
     ) -> str:
         await self._mark_read(event)
         if session is not None:
             text = with_first_hint(text, first_contact=len(session.history) == 0)
-        await event.respond(
-            text,
-            reply_to=event.message.id,
-            link_preview=False,
-        )
-        return text
+
+        parts = split_reply_parts(text)
+        if not parts:
+            return text
+
+        sent_all: list[str] = []
+        for i, part in enumerate(parts):
+            if i > 0:
+                await asyncio.sleep(0.25 if fast else 0.45)
+            await event.respond(
+                part,
+                reply_to=event.message.id if i == 0 else None,
+                link_preview=False,
+            )
+            sent_all.append(part)
+        return "|||SPLIT|||".join(sent_all)
 
     async def handle_outgoing(self, event: events.NewMessage.Event) -> None:
         # Только команды /ai в Избранном. Ответы оператору в чатах пользователей — игнорируем.
@@ -321,12 +333,13 @@ class SupportUserbot:
         low = text.lower()
         if low in {"/start", "start"}:
             welcome = (
-                "Привет! 👋 Поддержка Satka VPN.\n\n"
-                "Рад помочь с подключением, тарифами, Happ, оплатой, кабинетом — "
-                "и просто пообщаться, если есть вопрос.\n"
-                "Опишите, что нужно, своими словами."
+                "йоу, привет 👋"
+                "|||SPLIT|||"
+                "я поддержка Satka VPN — впн, хапп, тарифы, оплата"
+                "|||SPLIT|||"
+                "пиши чё надо своими словами"
             )
-            sent = await self._reply(event, welcome, session=session)
+            sent = await self._reply(event, welcome, session=session, fast=True)
             session.history.append({"role": "user", "text": text})
             session.history.append({"role": "assistant", "text": sent})
             return
@@ -351,14 +364,14 @@ class SupportUserbot:
 
         # 1) Готовые ответы и приветствия — до фильтров
         if text == "[стикер]":
-            sent = await self._reply(event, STICKER_REPLY, session=session)
+            sent = await self._reply(event, STICKER_REPLY, session=session, fast=True)
             session.history.append({"role": "user", "text": text})
             session.history.append({"role": "assistant", "text": sent})
             return
 
         canned = match_canned(text, already_greeted=session.greeted)
         if canned:
-            sent = await self._reply(event, canned, session=session)
+            sent = await self._reply(event, canned, session=session, fast=True)
             session.history.append({"role": "user", "text": text})
             session.history.append({"role": "assistant", "text": sent})
             session.greeted = True
@@ -368,14 +381,14 @@ class SupportUserbot:
         filter_kind, filter_reply = classify_message(text)
         if filter_kind in {"manipulation", "off_topic"} and filter_reply:
             logger.info("Filtered %s message from user %s", filter_kind, user_id)
-            await self._reply(event, filter_reply, session=session)
+            await self._reply(event, filter_reply, session=session, fast=True)
             session.history.append({"role": "user", "text": text})
             session.history.append({"role": "assistant", "text": filter_reply})
             return
 
         troll = match_troll_reply(text)
         if troll:
-            sent = await self._reply(event, troll, session=session)
+            sent = await self._reply(event, troll, session=session, fast=True)
             session.history.append({"role": "user", "text": text})
             session.history.append({"role": "assistant", "text": sent})
             return
@@ -384,9 +397,10 @@ class SupportUserbot:
         if operator_requested:
             await self._reply(
                 event,
-                "Передаю оператору. Кратко опишите проблему и приложите скрин из Happ, "
-                "если есть — скоро ответим.",
+                "ок, кидаю оператору|||SPLIT|||"
+                "кратко опиши проблему и скрин из хаппа если есть — скоро ответят",
                 session=session,
+                fast=True,
             )
             await self._maybe_escalate(
                 session,
@@ -399,25 +413,24 @@ class SupportUserbot:
             )
             return
 
-        async with self.client.action(event.chat_id, "typing"):
-            history = [{"role": t["role"], "text": t["text"]} for t in session.history]
-            async with self._llm_sem:
-                ai = await asyncio.to_thread(
-                    self.ai.reply,
-                    text,
-                    history=history,
-                    username=username,
-                    user_id=user_id,
-                    display_name=display_name,
-                    has_history=bool(session.history),
-                )
+        history = [{"role": t["role"], "text": t["text"]} for t in session.history]
+        async with self._llm_sem:
+            ai = await asyncio.to_thread(
+                self.ai.reply,
+                text,
+                history=history,
+                username=username,
+                user_id=user_id,
+                display_name=display_name,
+                has_history=bool(session.history),
+            )
 
         if self._chat_is_blocked(event.chat_id):
             return
 
         reply = ai.text
         if not ai.api_error and session.unclear_streak >= 3 and not ai.escalate:
-            reply += "\n\nЕсли не помогло — напишите «Оператор», подключим специалиста."
+            reply += "\n\nесли не вывез — напиши «Оператор»"
             ai.escalate = True
 
         if not ai.api_error and ai.confidence == "low":

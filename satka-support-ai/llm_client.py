@@ -98,7 +98,7 @@ class LlmSupportClient:
         self._client = OpenAI(
             api_key=settings.llm_api_key,
             base_url=settings.llm_base_url,
-            timeout=60.0,
+            timeout=25.0,
         )
 
     def _messages(
@@ -121,9 +121,9 @@ class LlmSupportClient:
                 response = self._client.chat.completions.create(
                     model=self._settings.llm_model,
                     messages=messages,
-                    temperature=0.55,
-                    top_p=0.9,
-                    max_tokens=500,
+                    temperature=0.68,
+                    top_p=0.92,
+                    max_tokens=280,
                 )
                 return (response.choices[0].message.content or "").strip()
             except APIStatusError as exc:

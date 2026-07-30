@@ -10,17 +10,18 @@ from canned_responses import is_greeting_word, looks_like_laughter
 FilterResult = Literal["ok", "manipulation", "off_topic"]
 
 WARM_REDIRECT_REPLY = (
-    "Я в основном по Satka VPN, но рад пообщаться 🙂 "
-    "Если что-то с подключением, Happ или тарифами — спрашивайте. "
-    "Или напишите «Оператор»."
+    "я в основном по Satka VPN, но поболтать ок 🙂"
+    "|||SPLIT|||"
+    "если с подключением, хаппом или тарифами — спрашивай. или «Оператор»"
 )
 
 # Сохраняем старое имя для совместимости с llm_client
 OFF_TOPIC_REPLY = WARM_REDIRECT_REPLY
 
 CODE_REQUEST_REPLY = (
-    "Код не пишу — я про VPN, не про программирование 🙂 "
-    "Зато помогу с подключением, тарифами и Happ. Что не так?"
+    "код не пишу, я про впн а не про программирование 😄"
+    "|||SPLIT|||"
+    "зато с подключением, тарифами и хаппом помогу — чё не так?"
 )
 
 MANIPULATION_REPLY = (

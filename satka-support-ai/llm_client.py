@@ -88,16 +88,18 @@ def _user_facing_error(exc: Exception) -> str:
 
 
 def _rate_limit_fallback(user_message: str) -> str:
-    for resolver in (match_canned, match_troll_reply):
-        hit = resolver(user_message)
-        if hit:
-            return hit
+    troll = match_troll_reply(user_message)
+    if troll:
+        return troll
     if needs_llm_thinking(user_message):
         return (
-            "ща, лимит на ответы — напиши через минутку"
+            "ща сек, ассистент подтупливает от нагрузки — напиши через минутку"
             "|||SPLIT|||"
-            "или «Оператор», подключим живого чела"
+            "или «Оператор» — подключим живого"
         )
+    hit = match_canned(user_message)
+    if hit:
+        return hit
     return pick_casual_fallback(user_message)
 
 
@@ -125,20 +127,20 @@ class LlmSupportClient:
 
     def _call_llm(self, messages: list[dict[str, str]]) -> str:
         last_exc: Exception | None = None
-        for attempt in range(5):
+        for attempt in range(6):
             try:
                 response = self._client.chat.completions.create(
                     model=self._settings.llm_model,
                     messages=messages,
-                    temperature=0.68,
-                    top_p=0.92,
-                    max_tokens=380,
+                    temperature=0.65,
+                    top_p=0.9,
+                    max_tokens=420,
                 )
                 return (response.choices[0].message.content or "").strip()
             except APIStatusError as exc:
                 last_exc = exc
-                if exc.status_code == 429 and attempt < 4:
-                    time.sleep(min(2 ** attempt + 1, 12))
+                if exc.status_code == 429 and attempt < 5:
+                    time.sleep(min(2 ** attempt + 2, 20))
                     continue
                 raise
         raise last_exc  # type: ignore[misc]

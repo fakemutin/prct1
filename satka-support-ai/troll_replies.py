@@ -84,6 +84,15 @@ EXACT_PHRASE_MAP: dict[str, str] = {
   "i am mammoth": "YOU ARE MAMMOTH",
   "i love you": "I LOVE YOU TOO",
   "hello world": "ВЫ HELLO WORLD",
+  # «вы X» — мем
+  "вы мамонт": "ВЫ МАМОНТ",
+  "вы бурмалда": "ВЫ БУРМАЛДА",
+  "вы огурец": "ВЫ ОГУРЕЦ",
+  "вы дурак": "ВЫ ДУРАК",
+  "вы лох": "ВЫ ЛОХ",
+  "вы клоун": "ВЫ КЛОУН",
+  "вы тупой": "ВЫ ТУПОЙ",
+  "вы бот": "ВЫ БОТ",
 }
 
 # Глаголы: множественное/страдательное → контратака от «я вас»
@@ -137,6 +146,12 @@ _I_NOUN_RE = re.compile(
 # «ты ADJECTIVE/NOUN»
 _TY_SIMPLE_RE = re.compile(
   r"^ты\s+(.+)$",
+  re.IGNORECASE,
+)
+
+# «вы X» → «ВЫ X»
+_VY_SIMPLE_RE = re.compile(
+  r"^вы\s+(.+)$",
   re.IGNORECASE,
 )
 
@@ -260,6 +275,11 @@ def smart_troll_reply(phrase: str) -> str:
   if m:
     return f"ВЫ {m.group(1).upper()}"
 
+  # вы X → ВЫ X (мем «вы мамонт»)
+  m = _VY_SIMPLE_RE.match(norm)
+  if m:
+    return f"ВЫ {m.group(1).upper()}"
+
   # я X → вы X (мамонт, бурмалда и т.д.)
   m = _I_NOUN_RE.match(norm)
   if m:
@@ -272,6 +292,15 @@ def match_troll_reply(text: str) -> str | None:
     cleaned = (text or "").strip()
     if not cleaned:
         return None
+
+    norm = _normalize(cleaned)
+    # Прямые мем-фразы без «напиши»
+    direct = EXACT_PHRASE_MAP.get(norm)
+    if direct:
+        return direct
+    if _VY_SIMPLE_RE.match(norm) and len(norm) < 40:
+        return smart_troll_reply(cleaned)
+
     # «расскажи о впне» и болтовня — не троллинг, пусть думает LLM
     if needs_llm_thinking(cleaned):
         return None

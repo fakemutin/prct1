@@ -84,7 +84,7 @@ WRITE_WORD_RE = re.compile(
 )
 
 from banter_replies import match_banter, pick_casual_fallback, pick_sticker_reply
-from routing import needs_llm_thinking
+from routing import needs_llm_thinking, allow_instant_canned
 from slang_lexicon import match_slang_lexicon
 from troll_replies import smart_troll_reply
 
@@ -110,7 +110,7 @@ SUBSCRIPTION_RE = re.compile(
 )
 
 PRICE_RE = re.compile(
-    r"(сколько\s+стоит|цена|тариф|прайс|стоимость|сколько\s+денег|почём)",
+    r"(сколько\s+стоит|цена\s+на|цены\s+на|прайс|стоимость|сколько\s+денег|почём\s)",
     re.IGNORECASE,
 )
 
@@ -118,7 +118,7 @@ NOT_WORKING_RE = re.compile(
     r"(не\s+работ|не\s+подключ|не\s+включ|не\s+груз|не\s+открыв|"
     r"ошибк|timed?\s*out|timeout|таймаут|отвал|висит|медлен|не\s+идёт|"
     r"502|gateway|gate\s*away|отьебн|зуйн|нихуя\s+не|не\s+фурычит|"
-    r"не\s+пашет|не\s+коннект|белые\s+списк|бс\s+не|глушил)",
+    r"не\s+пашет|не\s+коннект)",
     re.IGNORECASE,
 )
 
@@ -170,8 +170,9 @@ PRICE_REPLY = (
     "|||SPLIT|||"
     "• базовый (1 устр): от 20₽/день, 50₽/30 дней\n"
     "• расширенный (3 устр): 99₽/30\n"
-    "• для мамы (глушилки LTE): от 69₽/30\n"
+    "• для мамы (1 устр, дешевле LTE): от 69₽/30\n"
     "• семейный (7 устр): 145₽/30\n"
+    "• глушилки/бс — на всех платных, секция «Для моб. операторов» в Happ\n"
     "• бесплатка: 4 дня в @satkavpn_bot"
     "|||SPLIT|||"
     "оформить: @satkavpn_bot → подписка"
@@ -280,12 +281,18 @@ def with_first_hint(text: str, *, first_contact: bool, already_greeted: bool = F
     return text + OPERATOR_FIRST_HINT
 
 
-def match_canned(text: str, *, already_greeted: bool = False) -> str | None:
+def match_canned(text: str, *, already_greeted: bool = False, in_active_chat: bool = False) -> str | None:
     cleaned = (text or "").strip()
     if not cleaned:
         return None
 
-    # Разговор и сложные вопросы — отдаём LLM, он думает сам
+    if in_active_chat or not allow_instant_canned(cleaned, in_active_chat=in_active_chat):
+        if needs_llm_thinking(cleaned):
+            return None
+        if in_active_chat:
+            return None
+
+    # Разговор и сложные вопросы — отдаём LLM
     if needs_llm_thinking(cleaned):
         return None
 

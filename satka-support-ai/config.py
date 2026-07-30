@@ -71,7 +71,7 @@ class Settings:
             admin_chat_id=_env_int("ADMIN_CHAT_ID", 8505786243),
             admin_username=_env("ADMIN_USERNAME", "hustlehapp"),
             llm_model=_env("LLM_MODEL", "llama-3.3-70b-versatile"),
-            max_history_turns=_env_int("MAX_HISTORY_TURNS", 16),
+            max_history_turns=_env_int("MAX_HISTORY_TURNS", 8),
             alert_repeat_count=_env_int("ALERT_REPEAT_COUNT", 3),
             alert_repeat_delay_sec=float(_env("ALERT_REPEAT_DELAY_SEC", "1.2")),
             allowed_chat_ids=allowed,

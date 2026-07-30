@@ -24,7 +24,7 @@ from routing import needs_llm_thinking, force_llm_from_history
 from troll_replies import match_troll_reply
 from reply_utils import split_reply_parts
 
-BOT_VERSION = "2026-07-31-v14-smart"
+BOT_VERSION = "2026-07-31-v15-retrain"
 
 logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -37,7 +37,7 @@ AI_USER_CMD = re.compile(r"^/ai\s+@?([A-Za-z0-9_]{3,32})\s+(block|unblock)\s*$",
 
 @dataclass
 class UserSession:
-    history: deque = field(default_factory=lambda: deque(maxlen=24))
+    history: deque = field(default_factory=lambda: deque(maxlen=10))
     last_escalation_ts: float = 0.0
     unclear_streak: int = 0
     greeted: bool = False
@@ -368,7 +368,16 @@ class SupportUserbot:
 
         operator_requested = user_requests_operator(text)
 
+        # Мемы/тролл — всегда мгновенно, даже в активном диалоге
+        troll = match_troll_reply(text)
+        if troll:
+            sent = await self._reply(event, troll, session=session, fast=True)
+            session.history.append({"role": "user", "text": text})
+            session.history.append({"role": "assistant", "text": sent})
+            return
+
         history_list = [{"role": t["role"], "text": t["text"]} for t in session.history]
+        in_active_chat = len(history_list) >= 2
         use_llm = needs_llm_thinking(text) or force_llm_from_history(history_list, text)
 
         # Разговор и сложные вопросы — сразу в LLM (думает сам)
@@ -382,14 +391,11 @@ class SupportUserbot:
                 session.history.append({"role": "assistant", "text": sent})
                 return
 
-            troll = match_troll_reply(text)
-            if troll:
-                sent = await self._reply(event, troll, session=session, fast=True)
-                session.history.append({"role": "user", "text": text})
-                session.history.append({"role": "assistant", "text": sent})
-                return
-
-            canned = match_canned(text, already_greeted=session.greeted)
+            canned = match_canned(
+                text,
+                already_greeted=session.greeted,
+                in_active_chat=in_active_chat,
+            )
             if canned:
                 sent = await self._reply(event, canned, session=session, fast=True)
                 session.history.append({"role": "user", "text": text})
@@ -500,13 +506,14 @@ async def run() -> None:
     bot = SupportUserbot(settings, client)
     bot._me_id = me.id
     bot._blocked_chats_until.clear()
+    bot.sessions.clear()  # чистый старт — без старых диалогов в памяти
     bot.register_handlers()
 
     await client(UpdateStatusRequest(offline=False))
     asyncio.create_task(bot._keep_online_loop())
 
     logger.info(
-        "Support userbot v%s online as @%s (model=%s, concurrent=%s, keepalive=%ss)",
+        "Support userbot v%s online as @%s (model=%s, concurrent=%s, keepalive=%ss, sessions=cleared)",
         BOT_VERSION,
         me.username,
         settings.llm_model,

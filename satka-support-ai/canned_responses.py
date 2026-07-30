@@ -84,6 +84,7 @@ WRITE_WORD_RE = re.compile(
 )
 
 from banter_replies import match_banter, pick_casual_fallback, pick_sticker_reply
+from routing import needs_llm_thinking
 from slang_lexicon import match_slang_lexicon
 from troll_replies import smart_troll_reply
 
@@ -280,6 +281,18 @@ def match_canned(text: str, *, already_greeted: bool = False) -> str | None:
     if not cleaned:
         return None
 
+    # Разговор и сложные вопросы — отдаём LLM, он думает сам
+    if needs_llm_thinking(cleaned):
+        return None
+
+    # VPN: инструкции и проблемы — мгновенно
+    if NOT_WORKING_RE.search(cleaned):
+        return NOT_WORKING_REPLY
+    if PRICE_RE.search(cleaned):
+        return PRICE_REPLY
+    if SUBSCRIPTION_RE.search(cleaned):
+        return CONNECT_REPLY
+
     banter = match_banter(cleaned)
     if banter:
         return banter
@@ -328,25 +341,14 @@ def match_canned(text: str, *, already_greeted: bool = False) -> str | None:
     if ACK_RE.match(cleaned):
         return ACK_REPLY
 
-    # Подписка/подключение — даже если есть «расскажите» или «как дела»
-    if SUBSCRIPTION_RE.search(cleaned):
-        if SMALL_TALK_RE.search(cleaned):
-            return "норм, на связи 🙂|||SPLIT|||" + CONNECT_REPLY
-        return CONNECT_REPLY
-
-    if NOT_WORKING_RE.search(cleaned):
-        return NOT_WORKING_REPLY
-
-    if PRICE_RE.search(cleaned):
-        return PRICE_REPLY
-
-    if SMALL_TALK_RE.search(cleaned):
+    # Короткий small talk без других тем
+    if len(cleaned) < 30 and SMALL_TALK_RE.search(cleaned):
         return SMALL_TALK_REPLY
 
-    if SERVICE_INFO_RE.search(cleaned):
+    if SERVICE_INFO_RE.search(cleaned) and len(cleaned) < 40:
         return SERVICE_INFO_REPLY
 
-    if TELL_ABOUT_RE.search(cleaned) and not SUBSCRIPTION_RE.search(cleaned):
+    if TELL_ABOUT_RE.search(cleaned) and len(cleaned) < 40:
         return SERVICE_INFO_REPLY
 
     return None

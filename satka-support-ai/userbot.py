@@ -23,7 +23,7 @@ from message_filters import classify_message
 from troll_replies import match_troll_reply
 from reply_utils import split_reply_parts
 
-BOT_VERSION = "2026-07-31-v11-banter"
+BOT_VERSION = "2026-07-31-v12-think"
 
 logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -418,28 +418,19 @@ class SupportUserbot:
             )
             return
 
-        # 4) LLM — только если не нашли быстрый ответ
-        from banter_replies import match_banter
-
-        banter = match_banter(text)
-        if banter:
-            sent = await self._reply(event, banter, session=session, fast=True)
-            session.history.append({"role": "user", "text": text})
-            session.history.append({"role": "assistant", "text": sent})
-            session.greeted = True
-            return
-
+        # 4) LLM — думает и отвечает по сути
         history = [{"role": t["role"], "text": t["text"]} for t in session.history]
-        async with self._llm_sem:
-            ai = await asyncio.to_thread(
-                self.ai.reply,
-                text,
-                history=history,
-                username=username,
-                user_id=user_id,
-                display_name=display_name,
-                has_history=bool(session.history),
-            )
+        async with self.client.action(event.chat_id, "typing"):
+            async with self._llm_sem:
+                ai = await asyncio.to_thread(
+                    self.ai.reply,
+                    text,
+                    history=history,
+                    username=username,
+                    user_id=user_id,
+                    display_name=display_name,
+                    has_history=bool(session.history),
+                )
 
         if self._chat_is_blocked(event.chat_id):
             return

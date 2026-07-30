@@ -14,6 +14,7 @@ from banter_replies import pick_casual_fallback
 from canned_responses import BUSY_REPLY, match_canned
 from config import Settings
 from message_filters import CODE_REQUEST_REPLY, WARM_REDIRECT_REPLY
+from routing import needs_llm_thinking
 from troll_replies import match_troll_reply
 from prompts import SYSTEM_PROMPT, build_user_context
 
@@ -91,6 +92,12 @@ def _rate_limit_fallback(user_message: str) -> str:
         hit = resolver(user_message)
         if hit:
             return hit
+    if needs_llm_thinking(user_message):
+        return (
+            "ща, лимит на ответы — напиши через минутку"
+            "|||SPLIT|||"
+            "или «Оператор», подключим живого чела"
+        )
     return pick_casual_fallback(user_message)
 
 
@@ -125,7 +132,7 @@ class LlmSupportClient:
                     messages=messages,
                     temperature=0.68,
                     top_p=0.92,
-                    max_tokens=280,
+                    max_tokens=380,
                 )
                 return (response.choices[0].message.content or "").strip()
             except APIStatusError as exc:

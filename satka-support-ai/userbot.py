@@ -16,14 +16,14 @@ from telethon import TelegramClient, events
 from telethon.tl.functions.account import UpdateStatusRequest
 from telethon.tl.types import User
 
-from canned_responses import STICKER_REPLY, match_canned, with_first_hint
+from canned_responses import match_canned, pick_sticker_reply, with_first_hint
 from config import Settings
 from llm_client import LlmSupportClient, user_requests_operator
 from message_filters import classify_message
 from troll_replies import match_troll_reply
 from reply_utils import split_reply_parts
 
-BOT_VERSION = "2026-07-31-v10-troll"
+BOT_VERSION = "2026-07-31-v11-banter"
 
 logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -173,7 +173,11 @@ class SupportUserbot:
     ) -> str:
         await self._mark_read(event)
         if session is not None:
-            text = with_first_hint(text, first_contact=len(session.history) == 0)
+            text = with_first_hint(
+                text,
+                first_contact=len(session.history) == 0,
+                already_greeted=session.greeted,
+            )
 
         parts = split_reply_parts(text)
         if not parts:
@@ -365,7 +369,7 @@ class SupportUserbot:
 
         # 1) Готовые ответы и приветствия — до фильтров
         if text == "[стикер]":
-            sent = await self._reply(event, STICKER_REPLY, session=session, fast=True)
+            sent = await self._reply(event, pick_sticker_reply(), session=session, fast=True)
             session.history.append({"role": "user", "text": text})
             session.history.append({"role": "assistant", "text": sent})
             return
@@ -412,6 +416,17 @@ class SupportUserbot:
                 last_message=text,
                 force=True,
             )
+            return
+
+        # 4) LLM — только если не нашли быстрый ответ
+        from banter_replies import match_banter
+
+        banter = match_banter(text)
+        if banter:
+            sent = await self._reply(event, banter, session=session, fast=True)
+            session.history.append({"role": "user", "text": text})
+            session.history.append({"role": "assistant", "text": sent})
+            session.greeted = True
             return
 
         history = [{"role": t["role"], "text": t["text"]} for t in session.history]

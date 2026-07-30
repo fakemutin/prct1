@@ -83,6 +83,7 @@ WRITE_WORD_RE = re.compile(
     re.IGNORECASE,
 )
 
+from banter_replies import match_banter, pick_casual_fallback, pick_sticker_reply
 from slang_lexicon import match_slang_lexicon
 from troll_replies import smart_troll_reply
 
@@ -214,13 +215,9 @@ BANTER_REPLY = "ну я стараюсь 😄|||SPLIT|||давай по делу
 
 AFFECTION_REPLY = "спс, взаимно 🙌|||SPLIT|||по впну чё надо?"
 
-CASUAL_CHAT_REPLY = (
-    "на месте 🙂"
-    "|||SPLIT|||"
-    "по Satka VPN помогу — подключение, тарифы, хапп. или просто поболтаем"
-)
+CASUAL_CHAT_REPLY = pick_casual_fallback  # legacy alias; use pick_casual_fallback(text)
 
-STICKER_REPLY = "вижу стикер 😄|||SPLIT|||напиши текстом чё надо — впн, хапп, тарифы"
+STICKER_REPLY = pick_sticker_reply  # legacy; call pick_sticker_reply() at runtime
 
 BUSY_REPLY = (
     "Сейчас высокая нагрузка на ассистента. Кратко:\n"
@@ -272,8 +269,8 @@ def match_write_word_reply(text: str) -> str | None:
     return smart_troll_reply(phrase)
 
 
-def with_first_hint(text: str, *, first_contact: bool) -> str:
-    if not first_contact or "оператор" in text.lower():
+def with_first_hint(text: str, *, first_contact: bool, already_greeted: bool = False) -> str:
+    if not first_contact or already_greeted or "оператор" in text.lower():
         return text
     return text + OPERATOR_FIRST_HINT
 
@@ -282,6 +279,10 @@ def match_canned(text: str, *, already_greeted: bool = False) -> str | None:
     cleaned = (text or "").strip()
     if not cleaned:
         return None
+
+    banter = match_banter(cleaned)
+    if banter:
+        return banter
 
     slang = match_slang_lexicon(cleaned)
     if slang:

@@ -10,7 +10,8 @@ from dataclasses import dataclass
 
 from openai import APIStatusError, OpenAI
 
-from canned_responses import BUSY_REPLY, CASUAL_CHAT_REPLY, match_canned
+from banter_replies import pick_casual_fallback
+from canned_responses import BUSY_REPLY, match_canned
 from config import Settings
 from message_filters import CODE_REQUEST_REPLY, WARM_REDIRECT_REPLY
 from troll_replies import match_troll_reply
@@ -90,7 +91,7 @@ def _rate_limit_fallback(user_message: str) -> str:
         hit = resolver(user_message)
         if hit:
             return hit
-    return CASUAL_CHAT_REPLY
+    return pick_casual_fallback(user_message)
 
 
 class LlmSupportClient:

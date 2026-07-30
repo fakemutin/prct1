@@ -22,6 +22,14 @@ except ImportError:
 
 CANDELIX_URL = os.environ.get("CANDELIX_URL", "https://sub.cndlx.sbs/ZAL6csH9NAU-bQCr")
 CANDELIX_HWID = os.environ.get("CANDELIX_HWID", "42904ae198c3e4dc")
+# По умолчанию апстримы (Candelix, sinful) не получают HWID/модель устройства.
+UPSTREAM_SEND_HWID = os.environ.get("UPSTREAM_SEND_HWID", "false").lower() in (
+    "1",
+    "true",
+    "yes",
+)
+UPSTREAM_USER_AGENT = os.environ.get("UPSTREAM_USER_AGENT", "Happ/2.0")
+UPSTREAM_DEVICE_OS = os.environ.get("UPSTREAM_DEVICE_OS", "iOS")
 WHITELIST_URL = os.environ.get(
     "WHITELIST_URL", "https://vpn.sinful.click/Kq-b55QHrmdcxNfm"
 )
@@ -552,6 +560,20 @@ def pick_hwid_request_headers(headers: dict | None) -> dict[str, str]:
     return out
 
 
+def upstream_request_headers() -> dict[str, str]:
+    """Заголовки для Candelix / sinful / прочих сторонних подписок.
+
+    Клиентский HWID передаётся только в Remnawave (fetch_native_json).
+    """
+    headers = {"User-Agent": UPSTREAM_USER_AGENT}
+    if UPSTREAM_SEND_HWID:
+        hwid = (CANDELIX_HWID or "").strip()
+        if hwid:
+            headers["x-hwid"] = hwid
+            headers["x-device-os"] = UPSTREAM_DEVICE_OS
+    return headers
+
+
 def pick_hwid_response_headers(headers: dict | None) -> dict[str, str]:
     if not headers:
         return {}
@@ -755,15 +777,6 @@ def build_separator_cfg(title: str) -> dict:
 def build_expired_notice_cfg() -> dict:
     """Сообщение в списке локаций Happ при истёкшей подписке."""
     return build_separator_cfg(SUBSCRIPTION_EXPIRED_REMARK)
-
-
-CANDELIX_HEADERS = {
-    "x-hwid": CANDELIX_HWID,
-    "x-device-os": "iOS",
-    "User-Agent": "Happ/2.0",
-}
-
-WHITELIST_HEADERS = {"User-Agent": "Happ/2.0"}
 
 
 @lru_cache(maxsize=1)
@@ -1393,8 +1406,11 @@ def fetch_native_json_via_api(token: str) -> list:
     return [vless_uri_to_cfg(link) for link in links]
 
 
+@lru_cache(maxsize=1)
 def fetch_candelix_json() -> list:
-    return fetch_json(f"{CANDELIX_URL.rstrip('/')}/json", CANDELIX_HEADERS)
+    return fetch_json(
+        f"{CANDELIX_URL.rstrip('/')}/json", upstream_request_headers()
+    )
 
 
 def format_whitelist_remark(original: str, number: int) -> str:
@@ -1474,7 +1490,7 @@ def fetch_whitelist_json() -> tuple[dict, ...]:
     if not url:
         return ()
     try:
-        items = fetch_json(url, WHITELIST_HEADERS)
+        items = fetch_json(url, upstream_request_headers())
     except Exception as exc:
         print(f"whitelist fetch failed: {exc}")
         return ()
@@ -1582,7 +1598,7 @@ def fetch_free_vpn_json() -> tuple[dict, ...]:
     if not url:
         return ()
     try:
-        items = fetch_json(url, WHITELIST_HEADERS)
+        items = fetch_json(url, upstream_request_headers())
     except Exception as exc:
         print(f"free vpn fetch failed: {exc}")
         return ()
@@ -1608,7 +1624,9 @@ def fetch_native_mihomo(token: str, client_headers: dict | None = None) -> dict:
 def fetch_candelix_mihomo() -> dict:
     if yaml is None:
         raise RuntimeError("PyYAML required for mihomo merge")
-    text = fetch_text(f"{CANDELIX_URL.rstrip('/')}/mihomo", CANDELIX_HEADERS)
+    text = fetch_text(
+        f"{CANDELIX_URL.rstrip('/')}/mihomo", upstream_request_headers()
+    )
     return yaml.safe_load(text)
 
 

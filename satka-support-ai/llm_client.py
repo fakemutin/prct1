@@ -12,7 +12,8 @@ from openai import APIStatusError, OpenAI
 
 from canned_responses import BUSY_REPLY, CASUAL_CHAT_REPLY, match_canned
 from config import Settings
-from message_filters import CODE_REQUEST_REPLY, WARM_REDIRECT_REPLY, match_troll_reply
+from message_filters import CODE_REQUEST_REPLY, WARM_REDIRECT_REPLY
+from troll_replies import match_troll_reply
 from prompts import SYSTEM_PROMPT, build_user_context
 
 logger = logging.getLogger(__name__)

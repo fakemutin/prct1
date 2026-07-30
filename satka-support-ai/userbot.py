@@ -19,10 +19,11 @@ from telethon.tl.types import User
 from canned_responses import STICKER_REPLY, match_canned, with_first_hint
 from config import Settings
 from llm_client import LlmSupportClient, user_requests_operator
-from message_filters import classify_message, match_troll_reply
+from message_filters import classify_message
+from troll_replies import match_troll_reply
 from reply_utils import split_reply_parts
 
-BOT_VERSION = "2026-07-31-v9-human"
+BOT_VERSION = "2026-07-31-v10-troll"
 
 logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",

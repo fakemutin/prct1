@@ -6,6 +6,7 @@ import re
 from typing import Literal
 
 from canned_responses import is_greeting_word, looks_like_laughter
+from troll_replies import match_troll_reply  # noqa: F401 — re-export
 
 FilterResult = Literal["ok", "manipulation", "off_topic"]
 
@@ -25,40 +26,9 @@ CODE_REQUEST_REPLY = (
 )
 
 MANIPULATION_REPLY = (
-    "Если вам тяжело — лучше обратиться к близким или на линию доверия. "
-    "Я тут по Satka VPN; если нужна помощь с сервисом — напишите."
-)
-
-INSULT_PHRASE_RE = re.compile(
-    r"("
-    r"пидар|пидор|ебан|бля|хуй|сука|мудак|дебил|идиот|"
-    r"говн|урод|мраз|чмо|лох\b"
-    r")",
-    re.IGNORECASE,
-)
-
-TROLL_INSULT_REPLY = (
-    "Я тут добрый помощник Satka VPN 🙂 "
-    "Спросите про подключение или напишите «Оператор»."
-)
-
-TROLL_PROMPT_RE = re.compile(
-    r"("
-    r"напиш\w*\s+[\"«']?[^\"»']+[\"»']?|"
-    r"скаж\w*\s+[\"«']?[^\"»']+[\"»']?|"
-    r"повтор\w*\s+[\"«']?[^\"»']+[\"»']?|"
-    r"для\s+(этого|помощи).{0,40}напиш\w*|"
-    r"мне\s+нужн\w*.{0,30}напиш\w*\s+[\"«']"
-    r")",
-    re.IGNORECASE,
-)
-
-TROLL_PHRASE_RE = re.compile(
-    r"[\"«']([^\"»']+)[\"»']|"
-    r"напиш\w*\s+(.+)$|"
-    r"скаж\w*\s+(.+)$|"
-    r"повтор\w*\s+(.+)$",
-    re.IGNORECASE,
+  "если тяжело — лучше к близким или на линию доверия"
+  "|||SPLIT|||"
+  "я тут по Satka VPN — если по сервису надо, пиши"
 )
 
 MANIPULATION_RE = re.compile(
@@ -133,46 +103,6 @@ VPN_TOPIC_RE = re.compile(
     r")",
     re.IGNORECASE,
 )
-
-
-def _extract_troll_phrase(text: str) -> str | None:
-    quoted = re.search(r"[\"«']([^\"»']+)[\"»']", text, re.IGNORECASE)
-    if quoted:
-        return quoted.group(1).strip()
-    for pattern in (
-        r"напиш\w*\s+(.+)$",
-        r"скаж\w*\s+(.+)$",
-        r"повтор\w*\s+(.+)$",
-    ):
-        match = re.search(pattern, text.strip(), re.IGNORECASE)
-        if match:
-            phrase = match.group(1).strip().strip("\"'«»")
-            if phrase:
-                return phrase
-    return None
-
-
-def _troll_reply_for_phrase(phrase: str) -> str:
-    if INSULT_PHRASE_RE.search(phrase):
-        return TROLL_INSULT_REPLY
-    cleaned = phrase.strip()
-    if re.match(r"^я\s+", cleaned, re.IGNORECASE):
-        rest = re.sub(r"^я\s+", "", cleaned, flags=re.IGNORECASE).strip()
-        return f"ВЫ {rest.upper()}"
-    return f"ВЫ {cleaned.upper()}"
-
-
-def match_troll_reply(text: str) -> str | None:
-    """Провокации «напиши X» → «ВЫ X», не повторяя от своего имени."""
-    cleaned = (text or "").strip()
-    if not cleaned or not TROLL_PROMPT_RE.search(cleaned):
-        return None
-    if OFF_TOPIC_RE.search(cleaned):
-        return None
-    phrase = _extract_troll_phrase(cleaned)
-    if not phrase:
-        return None
-    return _troll_reply_for_phrase(phrase)
 
 
 def _is_gibberish(text: str) -> bool:

@@ -83,10 +83,8 @@ WRITE_WORD_RE = re.compile(
     re.IGNORECASE,
 )
 
-_INSULT_WORD_RE = re.compile(
-    r"(пидар|пидор|ебан|хуй|сука|мудак|дебил|идиот|говн|урод|мраз|чмо)",
-    re.IGNORECASE,
-)
+from slang_lexicon import match_slang_lexicon
+from troll_replies import smart_troll_reply
 
 # Подписка / подключение — приоритет выше «расскажите о сервисе»
 SUBSCRIPTION_RE = re.compile(
@@ -264,19 +262,14 @@ def looks_like_laughter(text: str) -> bool:
 
 
 def match_write_word_reply(text: str) -> str | None:
-    """«напиши мамонт» без кавычек → «ВЫ МАМОНТ»."""
+    """«напиши мамонт» без кавычек."""
     match = WRITE_WORD_RE.match((text or "").strip())
     if not match:
         return None
     phrase = match.group(1).strip()
     if not phrase or len(phrase) > 40:
         return None
-    if _INSULT_WORD_RE.search(phrase):
-        return None
-    if re.match(r"^я\s+", phrase, re.IGNORECASE):
-        rest = re.sub(r"^я\s+", "", phrase, flags=re.IGNORECASE).strip()
-        return f"ВЫ {rest.upper()}"
-    return f"ВЫ {phrase.upper()}"
+    return smart_troll_reply(phrase)
 
 
 def with_first_hint(text: str, *, first_contact: bool) -> str:
@@ -289,6 +282,10 @@ def match_canned(text: str, *, already_greeted: bool = False) -> str | None:
     cleaned = (text or "").strip()
     if not cleaned:
         return None
+
+    slang = match_slang_lexicon(cleaned)
+    if slang:
+        return slang
 
     if _is_greeting(cleaned):
         return GREETING_AGAIN_REPLY if already_greeted else GREETING_REPLY

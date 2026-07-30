@@ -37,6 +37,12 @@ def pack_source(tmp_path: Path) -> Path:
         "Dockerfile",
         "docker-compose.yml",
         ".env.example",
+        "reply_utils.py",
+        "slang_style.py",
+        "slang_lexicon.py",
+        "troll_replies.py",
+        "banter_replies.py",
+        "routing.py",
     ]
     with tarfile.open(archive, "w:gz") as tar:
         for name in files:

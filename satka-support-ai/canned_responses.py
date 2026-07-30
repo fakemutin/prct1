@@ -273,6 +273,10 @@ def match_write_word_reply(text: str) -> str | None:
 def with_first_hint(text: str, *, first_contact: bool, already_greeted: bool = False) -> str:
     if not first_contact or already_greeted or "оператор" in text.lower():
         return text
+    # Не цеплять подсказку к шуткам/троллингу
+    first_part = text.split("|||SPLIT|||")[0].strip()
+    if first_part.startswith("ВЫ ") or first_part.startswith("Я ВАС "):
+        return text
     return text + OPERATOR_FIRST_HINT
 
 

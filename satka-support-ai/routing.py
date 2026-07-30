@@ -14,6 +14,8 @@ CONVERSATIONAL_RE = re.compile(
     r"чем\s+(он\s+)?лучше|почему\s+(вы|вас|satka|сатк)|"
     r"чем\s+отлича|преимущества|"
     r"не\s+понимаешь|ты\s+меня\s+не|или\s+че|или\s+чё|"
+    r"че\s+у\s+меня|у\s+меня\s+че|че\s+такое|"
+    r"че\s+говори|чё\s+говори|"
     r"о\s+сатк|о\s+сервис|про\s+сатк|про\s+сервис|"
     r"что\s+такое\s+satka|что\s+за\s+vpn|"
     r"интересно\s+узнать|посоветуй|порекомендуй|"
@@ -89,9 +91,33 @@ def needs_llm_thinking(text: str) -> bool:
         return True
     if re.search(r"расскаж", cleaned, re.I):
         return True
-    if re.search(r"тупой|дебил|идиот|быдл|долбо", cleaned, re.I) and len(cleaned) > 8:
+    if re.search(r"тупой|дебил|идиот|быдл|долбо|тупой\s+бот|ты\s+че|ты\s+чё", cleaned, re.I):
         return True
-    if re.search(r"икай|не\s+неси|не\s+гони", cleaned, re.I):
+    if re.search(r"икай|не\s+неси|не\s+гони|не\s+беси|заткнись", cleaned, re.I):
+        return True
+    # Короткая фрустрация после диалога («че говори», «ну и?»)
+    if re.search(r"^(че|чё|ну)\s+говори|^(ну\s+и|и\s+что)\s*\??$", cleaned, re.I):
         return True
 
     return False
+
+
+def force_llm_from_history(history: list[dict[str, str]], text: str) -> bool:
+    """Если уже шла болтовня/провокация — короткий ответ тоже в LLM."""
+    if not history:
+        return False
+    recent_user = " ".join(
+        t["text"].lower() for t in history[-6:] if t.get("role") == "user"
+    )
+    triggers = (
+        "расскаж", "поболта", "тупой", "дебил", "икай", "впн", "vpn",
+        "сатк", "лучше", "думаешь", "не понима", "быдл",
+    )
+    if not any(k in recent_user for k in triggers):
+        return False
+    cleaned = (text or "").strip()
+    if len(cleaned) > 90:
+        return True
+    if re.search(r"говори|ну\s+и|че\s+так|тупой|впн|vpn|сатк|расскаж", cleaned, re.I):
+        return True
+    return len(cleaned) < 35

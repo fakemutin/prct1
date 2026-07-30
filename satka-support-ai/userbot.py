@@ -20,11 +20,11 @@ from canned_responses import match_canned, pick_sticker_reply, with_first_hint
 from config import Settings
 from llm_client import LlmSupportClient, user_requests_operator
 from message_filters import classify_message
-from routing import needs_llm_thinking
+from routing import needs_llm_thinking, force_llm_from_history
 from troll_replies import match_troll_reply
 from reply_utils import split_reply_parts
 
-BOT_VERSION = "2026-07-31-v13-smart"
+BOT_VERSION = "2026-07-31-v14-smart"
 
 logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -368,8 +368,11 @@ class SupportUserbot:
 
         operator_requested = user_requests_operator(text)
 
+        history_list = [{"role": t["role"], "text": t["text"]} for t in session.history]
+        use_llm = needs_llm_thinking(text) or force_llm_from_history(history_list, text)
+
         # Разговор и сложные вопросы — сразу в LLM (думает сам)
-        if needs_llm_thinking(text):
+        if use_llm:
             pass  # skip instant replies below
         else:
             # 1) Быстрые ответы
@@ -424,7 +427,7 @@ class SupportUserbot:
             return
 
         # 4) LLM — думает и отвечает по сути
-        history = [{"role": t["role"], "text": t["text"]} for t in session.history]
+        history = history_list
         async with self.client.action(event.chat_id, "typing"):
             async with self._llm_sem:
                 ai = await asyncio.to_thread(

@@ -22,6 +22,12 @@ except ImportError:
 
 CANDELIX_URL = os.environ.get("CANDELIX_URL", "https://sub.cndlx.sbs/ZAL6csH9NAU-bQCr")
 CANDELIX_HWID = os.environ.get("CANDELIX_HWID", "42904ae198c3e4dc")
+# Candelix/sinful видят только наш мост, не устройства клиентов (как у обычных локаций).
+UPSTREAM_HIDE_DEVICES = os.environ.get("UPSTREAM_HIDE_DEVICES", "true").lower() in (
+    "1",
+    "true",
+    "yes",
+)
 WHITELIST_URL = os.environ.get(
     "WHITELIST_URL", "https://vpn.sinful.click/Kq-b55QHrmdcxNfm"
 )
@@ -1733,7 +1739,7 @@ def fetch_native_mihomo_proxies(
     return meta, by_country
 
 
-def fetch_whitelist_mihomo_proxies() -> dict[int, dict]:
+def fetch_whitelist_mihomo_proxies(*, via_bridge: bool = False) -> dict[int, dict]:
     use_candelix = paid_whitelist_from_candelix()
     items = fetch_paid_whitelist_json()
     prepared: dict[int, dict] = {}
@@ -1749,7 +1755,16 @@ def fetch_whitelist_mihomo_proxies() -> dict[int, dict]:
         if not ob:
             continue
         name = format_whitelist_direct_remark(item, number, candelix=use_candelix)
-        prepared[number] = xray_outbound_to_mihomo_proxy(ob, name)
+        dialer_proxy = None
+        if (
+            via_bridge
+            and UPSTREAM_HIDE_DEVICES
+            and not paid_whitelist_from_static()
+        ):
+            dialer_proxy = BRIDGE_INTERNAL_NAME
+        prepared[number] = xray_outbound_to_mihomo_proxy(
+            ob, name, dialer_proxy=dialer_proxy
+        )
     return prepared
 
 
@@ -1899,6 +1914,33 @@ def build_chain(bridge_cfg: dict, exit_cfg: dict, remark: str) -> dict | None:
     }
 
 
+def chain_exit_through_bridge(
+    exit_cfg: dict, bridge_cfg: dict | None, remark: str
+) -> dict:
+    """Спрятать exit за мостом: апстрим видит только IP моста."""
+    if not UPSTREAM_HIDE_DEVICES or not bridge_cfg:
+        return exit_cfg
+    chained = build_chain(bridge_cfg, exit_cfg, remark)
+    return chained if chained else exit_cfg
+
+
+def resolve_bridge_cfg_from_satka(satka: list) -> dict | None:
+    try:
+        return build_bridge_json_cfg(find_template_cfg(satka))
+    except Exception as exc:
+        print(f"bridge cfg build failed: {exc}")
+        return None
+
+
+def resolve_bridge_cfg_for_token(token: str) -> dict | None:
+    try:
+        satka, _ = fetch_native_json(token, None)
+        return resolve_bridge_cfg_from_satka(satka)
+    except Exception as exc:
+        print(f"bridge cfg fetch failed for {token}: {exc}")
+        return None
+
+
 def index_by_country(items: list, key: str = "remarks") -> dict[str, dict]:
     out: dict[str, dict] = {}
     for item in items:
@@ -1906,7 +1948,6 @@ def index_by_country(items: list, key: str = "remarks") -> dict[str, dict]:
         if country:
             out[country] = item
     return out
-
 
 
 def prepare_native_lte_exit(cfg: dict, native_key: str) -> None:
@@ -2242,6 +2283,7 @@ def prepare_whitelist_cfg(
     ping_seed: str | None = None,
     natives: dict[str, dict] | None = None,
     candelix: bool = False,
+    bridge_cfg: dict | None = None,
 ) -> dict:
     if paid_whitelist_from_static():
         cfg = resolve_static_whitelist_item(item)
@@ -2252,6 +2294,8 @@ def prepare_whitelist_cfg(
     for key in ("_wl_number", "_wl_top", "_wl_flag", "_wl_label"):
         cfg.pop(key, None)
     remark = format_whitelist_direct_remark(item, number, candelix=candelix)
+    if not paid_whitelist_from_static():
+        cfg = chain_exit_through_bridge(cfg, bridge_cfg, remark)
     cfg["remarks"] = remark
     seed = remark if ping_seed is None else ping_seed
     finalize_whitelist_cfg(cfg, ping_seed=seed, natives=natives)
@@ -2311,6 +2355,7 @@ def fetch_free_bridge_template(token: str) -> dict | None:
 def build_free_extra_servers(token: str) -> list:
     out: list[dict] = []
     wl_natives = fetch_torrent_exit_natives(token)
+    bridge_cfg = resolve_bridge_cfg_for_token(token)
     wl_items = fetch_whitelist_json()
     if len(wl_items) > FREE_EXTRA_WHITELIST_INDEX:
         out.append(
@@ -2319,6 +2364,7 @@ def build_free_extra_servers(token: str) -> list:
                 FREE_EXTRA_WHITELIST_NO,
                 wl_items,
                 natives=wl_natives,
+                bridge_cfg=bridge_cfg,
             )
         )
 
@@ -2355,6 +2401,7 @@ def append_whitelist_subset(
     auto_pool: tuple[int, ...],
     natives: dict[str, dict] | None = None,
     remark_formatter=None,
+    bridge_cfg: dict | None = None,
 ) -> int:
     """Подмножество белых списков с автовыбором."""
     use_candelix = paid_whitelist_from_candelix()
@@ -2366,7 +2413,12 @@ def append_whitelist_subset(
         if number not in numbers:
             continue
         prepared[number] = prepare_whitelist_cfg(
-            item, number, items, natives=natives, candelix=use_candelix
+            item,
+            number,
+            items,
+            natives=natives,
+            candelix=use_candelix,
+            bridge_cfg=bridge_cfg,
         )
         if remark_formatter:
             remark = remark_formatter(item, number, candelix=use_candelix)
@@ -2391,7 +2443,11 @@ def append_whitelist_subset(
 
 
 def append_whitelist_paid(
-    result: list, server_no: int, *, natives: dict[str, dict] | None = None
+    result: list,
+    server_no: int,
+    *,
+    natives: dict[str, dict] | None = None,
+    bridge_cfg: dict | None = None,
 ) -> int:
     """Белые списки в платной подписке (static / Candelix / sinful)."""
     use_candelix = paid_whitelist_from_candelix()
@@ -2401,7 +2457,12 @@ def append_whitelist_paid(
         server_no += 1
         number = whitelist_item_number(item, server_no)
         prepared[number] = prepare_whitelist_cfg(
-            item, number, items, natives=natives, candelix=use_candelix
+            item,
+            number,
+            items,
+            natives=natives,
+            candelix=use_candelix,
+            bridge_cfg=bridge_cfg,
         )
 
     pool_cfgs = [prepared[n] for n in WHITELIST_AUTO_POOL if n in prepared]
@@ -2511,6 +2572,7 @@ def merge_subscription(
 
     natives = index_by_country(satka)
     template_cfg = find_template_cfg(satka)
+    bridge_cfg = resolve_bridge_cfg_from_satka(satka)
 
     chains_raw = index_candelix(candelix)
 
@@ -2518,7 +2580,9 @@ def merge_subscription(
     server_no = 0
 
     result.append(build_separator_cfg(SECTION_WHITELIST))
-    server_no = append_whitelist_paid(result, server_no, natives=natives)
+    server_no = append_whitelist_paid(
+        result, server_no, natives=natives, bridge_cfg=bridge_cfg
+    )
 
     stable, unstable_sep, unstable = split_location_sections(locations)
     stable_by_number = locations_by_number(stable)
@@ -2587,6 +2651,7 @@ def merge_mom_subscription(
     candelix = fetch_candelix_json()
     natives = index_by_country(satka)
     template_cfg = find_template_cfg(satka)
+    bridge_cfg = resolve_bridge_cfg_from_satka(satka)
     chains_raw = index_candelix(candelix)
 
     result: list[dict] = []
@@ -2600,6 +2665,7 @@ def merge_mom_subscription(
         auto_pool=MOM_WHITELIST_NUMBERS,
         natives=natives,
         remark_formatter=format_mom_whitelist_remark,
+        bridge_cfg=bridge_cfg,
     )
 
     stable, _, _ = split_location_sections(locations)
@@ -2658,13 +2724,19 @@ def merge_whitelist_subscription(token: str = "") -> list:
         return [build_expired_notice_cfg()]
 
     natives = fetch_torrent_exit_natives(token)
+    bridge_cfg = resolve_bridge_cfg_for_token(token)
     items = fetch_paid_whitelist_json()
     use_candelix = paid_whitelist_from_candelix()
     prepared: dict[int, dict] = {}
     for i, item in enumerate(items, 1):
         number = whitelist_item_number(item, i)
         prepared[number] = prepare_whitelist_cfg(
-            item, number, items, natives=natives, candelix=use_candelix
+            item,
+            number,
+            items,
+            natives=natives,
+            candelix=use_candelix,
+            bridge_cfg=bridge_cfg,
         )
 
     out: list[dict] = []
@@ -2699,13 +2771,21 @@ def merge_free_subscription(
 
     result: list[dict] = []
     server_no = 0
+    bridge_cfg = resolve_bridge_cfg_for_token(token) if sinful_items else None
 
     if native_items or sinful_items:
         result.append(build_separator_cfg("Бесплатные серверы"))
-        for item in native_items + sinful_items:
+        for item in native_items:
             server_no += 1
             remark = format_free_remark(item.get("remarks", "Free"), server_no)
             cfg = copy.deepcopy(item)
+            cfg["remarks"] = remark
+            finalize_cfg(cfg, ping_seed=remark)
+            result.append(cfg)
+        for item in sinful_items:
+            server_no += 1
+            remark = format_free_remark(item.get("remarks", "Free"), server_no)
+            cfg = chain_exit_through_bridge(copy.deepcopy(item), bridge_cfg, remark)
             cfg["remarks"] = remark
             finalize_cfg(cfg, ping_seed=remark)
             result.append(cfg)
@@ -2749,7 +2829,7 @@ def merge_mihomo_yaml(token: str, client_headers: dict | None = None) -> str:
     elif cand_map:
         template_proxy = next(iter(cand_map.values()))
     else:
-        wl_fallback = fetch_whitelist_mihomo_proxies()
+        wl_fallback = fetch_whitelist_mihomo_proxies(via_bridge=True)
         if not wl_fallback:
             raise ValueError("No Mihomo proxies available for subscription")
         template_proxy = next(iter(wl_fallback.values()))
@@ -2759,7 +2839,7 @@ def merge_mihomo_yaml(token: str, client_headers: dict | None = None) -> str:
     ordered_names: list[str] = []
     lb_groups: list[dict] = []
 
-    wl_proxies = fetch_whitelist_mihomo_proxies()
+    wl_proxies = fetch_whitelist_mihomo_proxies(via_bridge=True)
     wl_prepared: dict[int, tuple[dict, str]] = {}
     for number in WHITELIST_NUMBERS:
         proxy = wl_proxies.get(number)

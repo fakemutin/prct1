@@ -178,7 +178,8 @@ REGULAR_ADBLOCK_DOMAINS = list(
 )
 
 WHITELIST_TOP_NUMBERS = frozenset({1, 2, 4, 11})
-WHITELIST_AUTO_POOL = (1, 2, 4, 11)
+# Автовыбор: проверенные с VPS (2 RU, 4 LV, 6 FI, 12 NL)
+WHITELIST_AUTO_POOL = (2, 4, 6, 12)
 REGULAR_TOP_LTE_NUMBERS = frozenset({13, 15, 16, 19, 22, 23, 24, 25, 26})
 REGULAR_YT_WIFI_NUMBERS = frozenset({15, 19, 23, 24, 25, 26})
 REGULAR_AUTO_POOL = (13, 15, 16, 19, 22, 23, 24, 25, 26)
@@ -513,7 +514,7 @@ SECTION_REGULAR = "Обычные локации"
 SECTION_MOM_WHITELIST = "Интернет при глушилках и номер"
 SECTION_MOM_SERVERS = "Серверы"
 
-MOM_WHITELIST_NUMBERS = (1, 2, 4, 11)
+MOM_WHITELIST_NUMBERS = (2, 4, 6, 12)
 MOM_REGULAR_NUMBERS = (13, 15, 16, 19)
 MOM_REGULAR_PURPOSE = "Для работы Telegram и YouTube"
 

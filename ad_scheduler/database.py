@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -30,7 +29,7 @@ class Chat:
     username: str | None
     chat_type: str
     enabled: bool
-    interval_hours: float
+    interval_minutes: float
     last_posted_at: str | None
 
 
@@ -45,8 +44,9 @@ class AdMessage:
 
 
 class Database:
-    def __init__(self, path: Path) -> None:
+    def __init__(self, path: Path, default_interval_minutes: float = 15.0) -> None:
         self.path = path
+        self.default_interval_minutes = default_interval_minutes
         self._conn: aiosqlite.Connection | None = None
 
     async def connect(self) -> None:
@@ -55,6 +55,7 @@ class Database:
         self._conn.row_factory = aiosqlite.Row
         await self._conn.execute("PRAGMA foreign_keys = ON")
         await self._init_schema()
+        await self._migrate_schema()
 
     async def close(self) -> None:
         if self._conn:
@@ -69,7 +70,7 @@ class Database:
 
     async def _init_schema(self) -> None:
         await self.conn.executescript(
-            """
+            f"""
             CREATE TABLE IF NOT EXISTS accounts (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NOT NULL,
@@ -89,7 +90,7 @@ class Database:
                 username TEXT,
                 chat_type TEXT NOT NULL DEFAULT 'unknown',
                 enabled INTEGER NOT NULL DEFAULT 1,
-                interval_hours REAL NOT NULL DEFAULT 1,
+                interval_minutes REAL NOT NULL DEFAULT {self.default_interval_minutes},
                 last_posted_at TEXT,
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 UNIQUE(account_id, chat_id),
@@ -106,6 +107,15 @@ class Database:
                 FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE
             );
 
+            CREATE TABLE IF NOT EXISTS post_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                chat_row_id INTEGER NOT NULL,
+                success INTEGER NOT NULL,
+                detail TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (chat_row_id) REFERENCES chats(id) ON DELETE CASCADE
+            );
+
             CREATE TABLE IF NOT EXISTS kv_settings (
                 key TEXT PRIMARY KEY,
                 value TEXT NOT NULL
@@ -113,9 +123,22 @@ class Database:
 
             CREATE INDEX IF NOT EXISTS idx_chats_account ON chats(account_id);
             CREATE INDEX IF NOT EXISTS idx_chats_enabled ON chats(enabled);
+            CREATE INDEX IF NOT EXISTS idx_post_log_created ON post_log(created_at);
             """
         )
         await self.conn.commit()
+
+    async def _migrate_schema(self) -> None:
+        cur = await self.conn.execute("PRAGMA table_info(chats)")
+        columns = {row[1] for row in await cur.fetchall()}
+        if "interval_hours" in columns and "interval_minutes" not in columns:
+            await self.conn.execute(
+                "ALTER TABLE chats ADD COLUMN interval_minutes REAL NOT NULL DEFAULT 15"
+            )
+            await self.conn.execute(
+                "UPDATE chats SET interval_minutes = interval_hours * 60"
+            )
+            await self.conn.commit()
 
     # --- Settings ---
 
@@ -219,34 +242,44 @@ class Database:
         chat_type: str,
         *,
         enabled: bool | None = None,
-        interval_hours: float | None = None,
+        interval_minutes: float | None = None,
     ) -> int:
         cur = await self.conn.execute(
-            "SELECT id, enabled, interval_hours FROM chats WHERE account_id = ? AND chat_id = ?",
+            "SELECT id, enabled, interval_minutes FROM chats WHERE account_id = ? AND chat_id = ?",
             (account_id, chat_id),
         )
         existing = await cur.fetchone()
         if existing:
-            new_enabled = existing["enabled"] if enabled is None else (1 if enabled else 0)
+            new_enabled = (
+                bool(existing["enabled"]) if enabled is None else enabled
+            )
             new_interval = (
-                existing["interval_hours"]
-                if interval_hours is None
-                else interval_hours
+                float(existing["interval_minutes"])
+                if interval_minutes is None
+                else interval_minutes
             )
             await self.conn.execute(
                 """
                 UPDATE chats
-                SET title = ?, username = ?, chat_type = ?, enabled = ?, interval_hours = ?
+                SET title = ?, username = ?, chat_type = ?, enabled = ?, interval_minutes = ?
                 WHERE id = ?
                 """,
-                (title, username, chat_type, new_enabled, new_interval, existing["id"]),
+                (
+                    title,
+                    username,
+                    chat_type,
+                    1 if new_enabled else 0,
+                    new_interval,
+                    existing["id"],
+                ),
             )
             await self.conn.commit()
             return existing["id"]
 
+        default_enabled = True if enabled is None else enabled
         cur = await self.conn.execute(
             """
-            INSERT INTO chats (account_id, chat_id, title, username, chat_type, enabled, interval_hours)
+            INSERT INTO chats (account_id, chat_id, title, username, chat_type, enabled, interval_minutes)
             VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             (
@@ -255,8 +288,10 @@ class Database:
                 title,
                 username,
                 chat_type,
-                1 if (enabled is None or enabled) else 0,
-                interval_hours if interval_hours is not None else 1.0,
+                1 if default_enabled else 0,
+                interval_minutes
+                if interval_minutes is not None
+                else self.default_interval_minutes,
             ),
         )
         await self.conn.commit()
@@ -274,7 +309,7 @@ class Database:
             params.append(account_id)
         if only_enabled:
             query += " AND enabled = 1"
-        query += " ORDER BY account_id, title"
+        query += " ORDER BY account_id, title COLLATE NOCASE"
         cur = await self.conn.execute(query, params)
         rows = await cur.fetchall()
         return [self._row_to_chat(r) for r in rows]
@@ -291,12 +326,38 @@ class Database:
         )
         await self.conn.commit()
 
-    async def set_chat_interval(self, chat_row_id: int, hours: float) -> None:
+    async def set_all_chats_enabled(self, enabled: bool, account_id: int | None = None) -> int:
+        if account_id is None:
+            cur = await self.conn.execute(
+                "UPDATE chats SET enabled = ?", (1 if enabled else 0,)
+            )
+        else:
+            cur = await self.conn.execute(
+                "UPDATE chats SET enabled = ? WHERE account_id = ?",
+                (1 if enabled else 0, account_id),
+            )
+        await self.conn.commit()
+        return cur.rowcount
+
+    async def set_chat_interval(self, chat_row_id: int, minutes: float) -> None:
         await self.conn.execute(
-            "UPDATE chats SET interval_hours = ? WHERE id = ?",
-            (hours, chat_row_id),
+            "UPDATE chats SET interval_minutes = ? WHERE id = ?",
+            (minutes, chat_row_id),
         )
         await self.conn.commit()
+
+    async def set_default_interval_all(self, minutes: float, account_id: int | None = None) -> int:
+        if account_id is None:
+            cur = await self.conn.execute(
+                "UPDATE chats SET interval_minutes = ?", (minutes,)
+            )
+        else:
+            cur = await self.conn.execute(
+                "UPDATE chats SET interval_minutes = ? WHERE account_id = ?",
+                (minutes, account_id),
+            )
+        await self.conn.commit()
+        return cur.rowcount
 
     async def update_last_posted(self, chat_row_id: int, when: datetime | None = None) -> None:
         ts = (when or datetime.utcnow()).isoformat()
@@ -316,6 +377,9 @@ class Database:
         return int(row["c"]) if row else 0
 
     def _row_to_chat(self, row: aiosqlite.Row) -> Chat:
+        minutes = row["interval_minutes"]
+        if minutes is None and "interval_hours" in row.keys():
+            minutes = float(row["interval_hours"]) * 60
         return Chat(
             id=row["id"],
             account_id=row["account_id"],
@@ -324,7 +388,7 @@ class Database:
             username=row["username"],
             chat_type=row["chat_type"],
             enabled=bool(row["enabled"]),
-            interval_hours=float(row["interval_hours"]),
+            interval_minutes=float(minutes or self.default_interval_minutes),
             last_posted_at=row["last_posted_at"],
         )
 
@@ -338,9 +402,7 @@ class Database:
         label: str = "Основное",
     ) -> int:
         if account_id is None:
-            await self.conn.execute(
-                "DELETE FROM ad_messages WHERE account_id IS NULL"
-            )
+            await self.conn.execute("DELETE FROM ad_messages WHERE account_id IS NULL")
         else:
             await self.conn.execute(
                 "DELETE FROM ad_messages WHERE account_id = ?", (account_id,)
@@ -369,6 +431,11 @@ class Database:
         row = await cur.fetchone()
         return self._row_to_message(row) if row else None
 
+    async def has_ad_message(self) -> bool:
+        cur = await self.conn.execute("SELECT COUNT(*) AS c FROM ad_messages")
+        row = await cur.fetchone()
+        return bool(row and row["c"])
+
     async def list_ad_messages(self) -> list[AdMessage]:
         cur = await self.conn.execute(
             "SELECT * FROM ad_messages ORDER BY account_id IS NOT NULL, account_id, id DESC"
@@ -386,28 +453,37 @@ class Database:
             created_at=row["created_at"],
         )
 
-    # --- Stats ---
+    # --- Post log ---
 
-    async def export_snapshot(self) -> dict[str, Any]:
-        accounts = await self.get_accounts()
-        chats = await self.get_chats()
-        messages = await self.list_ad_messages()
-        return {
-            "accounts": [a.__dict__ for a in accounts],
-            "chats": [c.__dict__ for c in chats],
-            "messages": [m.__dict__ for m in messages],
-            "scheduler_running": await self.is_scheduler_running(),
-        }
-
-    async def import_snapshot(self, data: dict[str, Any]) -> None:
-        # Only for chat enable flags backup/restore via bot
-        for chat in data.get("chats", []):
-            await self.conn.execute(
-                "UPDATE chats SET enabled = ?, interval_hours = ? WHERE id = ?",
-                (
-                    1 if chat.get("enabled") else 0,
-                    float(chat.get("interval_hours", 1)),
-                    chat["id"],
-                ),
-            )
+    async def log_post(self, chat_row_id: int, success: bool, detail: str = "") -> None:
+        await self.conn.execute(
+            "INSERT INTO post_log (chat_row_id, success, detail) VALUES (?, ?, ?)",
+            (chat_row_id, 1 if success else 0, detail[:500]),
+        )
         await self.conn.commit()
+        await self.conn.execute(
+            """
+            DELETE FROM post_log WHERE id NOT IN (
+                SELECT id FROM post_log ORDER BY id DESC LIMIT 500
+            )
+            """
+        )
+        await self.conn.commit()
+
+    async def recent_post_log(self, limit: int = 10) -> list[str]:
+        cur = await self.conn.execute(
+            """
+            SELECT p.detail, p.success, p.created_at, c.title
+            FROM post_log p
+            JOIN chats c ON c.id = p.chat_row_id
+            ORDER BY p.id DESC
+            LIMIT ?
+            """,
+            (limit,),
+        )
+        rows = await cur.fetchall()
+        lines = []
+        for row in rows:
+            mark = "✅" if row["success"] else "❌"
+            lines.append(f"{mark} {row['created_at'][:19]} {row['title']}: {row['detail']}")
+        return lines

@@ -42,7 +42,11 @@ class Settings:
     bot_token: str
     admin_ids: list[int]
     proxy: ProxyConfig
-    default_interval_hours: float
+    default_interval_minutes: float
+    post_delay_seconds: float
+    scheduler_tick_seconds: float
+    auto_sync_on_start: bool
+    auto_start_scheduler: bool
     database_path: Path
     sessions_dir: Path
 
@@ -54,6 +58,13 @@ def _parse_admin_ids(raw: str) -> list[int]:
         if part.isdigit():
             ids.append(int(part))
     return ids
+
+
+def _env_bool(key: str, default: bool) -> bool:
+    raw = os.getenv(key, "").strip().lower()
+    if not raw:
+        return default
+    return raw in ("1", "true", "yes", "on")
 
 
 def load_settings() -> Settings:
@@ -80,11 +91,23 @@ def load_settings() -> Settings:
     if not sessions_dir.is_absolute():
         sessions_dir = BASE_DIR / sessions_dir
 
+    # Поддержка старого DEFAULT_INTERVAL_HOURS
+    if os.getenv("DEFAULT_INTERVAL_MINUTES"):
+        default_minutes = float(os.getenv("DEFAULT_INTERVAL_MINUTES", "15"))
+    elif os.getenv("DEFAULT_INTERVAL_HOURS"):
+        default_minutes = float(os.getenv("DEFAULT_INTERVAL_HOURS", "1")) * 60
+    else:
+        default_minutes = 15.0
+
     return Settings(
         bot_token=token,
         admin_ids=admin_ids,
         proxy=proxy,
-        default_interval_hours=float(os.getenv("DEFAULT_INTERVAL_HOURS", "1")),
+        default_interval_minutes=default_minutes,
+        post_delay_seconds=float(os.getenv("POST_DELAY_SECONDS", "5")),
+        scheduler_tick_seconds=float(os.getenv("SCHEDULER_TICK_SECONDS", "15")),
+        auto_sync_on_start=_env_bool("AUTO_SYNC_ON_START", True),
+        auto_start_scheduler=_env_bool("AUTO_START_SCHEDULER", True),
         database_path=db_path,
         sessions_dir=sessions_dir,
     )

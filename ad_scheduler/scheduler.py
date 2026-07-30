@@ -4,6 +4,7 @@ import asyncio
 import logging
 from datetime import datetime, timedelta
 
+from config import Settings
 from database import Chat, Database
 from userbot import UserbotManager
 
@@ -13,13 +14,13 @@ logger = logging.getLogger(__name__)
 class AdScheduler:
     def __init__(
         self,
+        settings: Settings,
         db: Database,
         userbots: UserbotManager,
-        default_interval_hours: float = 1.0,
     ) -> None:
+        self.settings = settings
         self.db = db
         self.userbots = userbots
-        self.default_interval_hours = default_interval_hours
         self._task: asyncio.Task | None = None
         self._stop_event = asyncio.Event()
         self._running = False
@@ -31,7 +32,7 @@ class AdScheduler:
 
     @property
     def last_results(self) -> list[str]:
-        return list(self._last_results[-20:])
+        return list(self._last_results[-30:])
 
     async def start(self) -> tuple[bool, str]:
         if self._running:
@@ -39,14 +40,17 @@ class AdScheduler:
 
         enabled = await self.db.count_enabled_chats()
         if enabled == 0:
-            return False, "Нет активных чатов для рассылки"
+            return False, "Нет активных чатов. Дождитесь синхронизации или добавьте чаты."
 
-        await self.userbots.start_all()
+        if not await self.db.has_ad_message():
+            return False, "Сначала задайте рекламное сообщение (📨 Сообщение)."
+
+        await self.userbots.start_all(auto_sync=False)
         self._stop_event.clear()
         self._running = True
         await self.db.set_scheduler_running(True)
         self._task = asyncio.create_task(self._loop(), name="ad-scheduler")
-        return True, f"Запущен. Активных чатов: {enabled}"
+        return True, f"Запущен. Активных чатов: {enabled}, интервал: {int(self.settings.default_interval_minutes)} мин"
 
     async def stop(self) -> str:
         if not self._running:
@@ -66,10 +70,15 @@ class AdScheduler:
         return "Планировщик остановлен"
 
     async def auto_resume(self) -> str | None:
-        if not await self.db.is_scheduler_running():
-            return None
-        ok, msg = await self.start()
-        return msg if ok else f"Автозапуск не удался: {msg}"
+        if await self.db.is_scheduler_running():
+            ok, msg = await self.start()
+            return msg if ok else f"Автовозобновление не удалось: {msg}"
+
+        if self.settings.auto_start_scheduler:
+            if await self.db.count_enabled_chats() > 0 and await self.db.has_ad_message():
+                ok, msg = await self.start()
+                return f"Автостарт: {msg}" if ok else f"Автостарт не удался: {msg}"
+        return None
 
     async def post_now(self, chat_row_id: int) -> tuple[bool, str]:
         chat = await self.db.get_chat(chat_row_id)
@@ -78,20 +87,26 @@ class AdScheduler:
         return await self._post_to_chat(chat, force=True)
 
     async def _loop(self) -> None:
-        logger.info("Scheduler loop started")
+        logger.info("Scheduler loop started (tick=%ss)", self.settings.scheduler_tick_seconds)
         while self._running and not self._stop_event.is_set():
             try:
                 await self._tick()
             except Exception:
                 logger.exception("Scheduler tick failed")
             try:
-                await asyncio.wait_for(self._stop_event.wait(), timeout=30)
+                await asyncio.wait_for(
+                    self._stop_event.wait(),
+                    timeout=self.settings.scheduler_tick_seconds,
+                )
             except asyncio.TimeoutError:
                 continue
         logger.info("Scheduler loop stopped")
 
     async def _tick(self) -> None:
         chats = await self.db.get_chats(only_enabled=True)
+        if not chats:
+            return
+
         now = datetime.utcnow()
         due = [c for c in chats if self._is_due(c, now)]
         if not due:
@@ -104,8 +119,9 @@ class AdScheduler:
             stamp = datetime.utcnow().strftime("%H:%M:%S")
             line = f"[{stamp}] {chat.title}: {'✅' if ok else '❌'} {msg}"
             self._last_results.append(line)
+            await self.db.log_post(chat.id, ok, msg)
             logger.info(line)
-            await asyncio.sleep(3)
+            await asyncio.sleep(self.settings.post_delay_seconds)
 
     def _is_due(self, chat: Chat, now: datetime) -> bool:
         if not chat.last_posted_at:
@@ -114,7 +130,7 @@ class AdScheduler:
             last = datetime.fromisoformat(chat.last_posted_at)
         except ValueError:
             return True
-        return now - last >= timedelta(hours=chat.interval_hours)
+        return now - last >= timedelta(minutes=chat.interval_minutes)
 
     async def _post_to_chat(self, chat: Chat, force: bool = False) -> tuple[bool, str]:
         if not force:
@@ -126,7 +142,7 @@ class AdScheduler:
         if not ad:
             return False, "Нет рекламного сообщения"
 
-        ok, msg = await self.userbots.forward_ad(
+        ok, msg = await self.userbots.send_ad(
             account_id=chat.account_id,
             target_chat_id=chat.chat_id,
             from_chat_id=ad.from_chat_id,

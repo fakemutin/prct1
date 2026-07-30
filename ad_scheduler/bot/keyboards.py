@@ -1,4 +1,13 @@
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup
+
+INTERVAL_PRESETS = [
+    (15, "15 мин"),
+    (30, "30 мин"),
+    (45, "45 мин"),
+    (60, "1 ч"),
+    (90, "1.5 ч"),
+    (120, "2 ч"),
+]
 
 
 def main_menu_kb() -> ReplyKeyboardMarkup:
@@ -8,7 +17,7 @@ def main_menu_kb() -> ReplyKeyboardMarkup:
             [KeyboardButton(text="⏹ Стоп"), KeyboardButton(text="📋 Чаты")],
             [KeyboardButton(text="👤 Аккаунты"), KeyboardButton(text="📨 Сообщение")],
             [KeyboardButton(text="🔄 Синхронизация"), KeyboardButton(text="➕ Добавить чат")],
-            [KeyboardButton(text="❓ Помощь")],
+            [KeyboardButton(text="⚙️ Настройки"), KeyboardButton(text="❓ Помощь")],
         ],
         resize_keyboard=True,
     )
@@ -32,7 +41,7 @@ def accounts_kb(accounts: list) -> InlineKeyboardMarkup:
             )
         ])
     rows.append([InlineKeyboardButton(text="➕ Добавить аккаунт", callback_data="acc:add")])
-    rows.append([InlineKeyboardButton(text="🔙 Назад", callback_data="back:main")])
+    rows.append([InlineKeyboardButton(text="🔙 Закрыть", callback_data="back:main")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -64,29 +73,45 @@ def chats_kb(chats: list, page: int = 0, per_page: int = 8) -> InlineKeyboardMar
 
     nav = []
     if page > 0:
-        nav.append(InlineKeyboardButton(text="⬅️", callback_data=f"chats_page:{page-1}"))
+        nav.append(InlineKeyboardButton(text="⬅️", callback_data=f"chats_page:{page - 1}"))
     if start + per_page < len(chats):
-        nav.append(InlineKeyboardButton(text="➡️", callback_data=f"chats_page:{page+1}"))
+        nav.append(InlineKeyboardButton(text="➡️", callback_data=f"chats_page:{page + 1}"))
     if nav:
         rows.append(nav)
 
-    rows.append([InlineKeyboardButton(text="🔙 Назад", callback_data="back:main")])
+    rows.append([
+        InlineKeyboardButton(text="✅ Включить все", callback_data="chats_all:on"),
+        InlineKeyboardButton(text="⛔ Выкл все", callback_data="chats_all:off"),
+    ])
+    rows.append([InlineKeyboardButton(text="🔙 Закрыть", callback_data="back:main")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def chat_detail_kb(chat_id: int, enabled: bool) -> InlineKeyboardMarkup:
     toggle = "🔴 Выключить" if enabled else "🟢 Включить"
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text=toggle, callback_data=f"chat_toggle:{chat_id}")],
-            [InlineKeyboardButton(text="📤 Отправить сейчас", callback_data=f"chat_post:{chat_id}")],
-            [InlineKeyboardButton(text="⏱ Интервал 1ч", callback_data=f"chat_int:{chat_id}:1")],
-            [InlineKeyboardButton(text="⏱ Интервал 2ч", callback_data=f"chat_int:{chat_id}:2")],
-            [InlineKeyboardButton(text="⏱ Интервал 3ч", callback_data=f"chat_int:{chat_id}:3")],
-            [InlineKeyboardButton(text="🗑 Удалить", callback_data=f"chat_del:{chat_id}")],
-            [InlineKeyboardButton(text="🔙 К чатам", callback_data="chats:list")],
-        ]
-    )
+    interval_rows = []
+    row: list[InlineKeyboardButton] = []
+    for minutes, label in INTERVAL_PRESETS:
+        row.append(
+            InlineKeyboardButton(
+                text=label,
+                callback_data=f"chat_int:{chat_id}:{minutes}",
+            )
+        )
+        if len(row) == 3:
+            interval_rows.append(row)
+            row = []
+    if row:
+        interval_rows.append(row)
+
+    buttons = [
+        [InlineKeyboardButton(text=toggle, callback_data=f"chat_toggle:{chat_id}")],
+        [InlineKeyboardButton(text="📤 Отправить сейчас", callback_data=f"chat_post:{chat_id}")],
+        *interval_rows,
+        [InlineKeyboardButton(text="🗑 Удалить", callback_data=f"chat_del:{chat_id}")],
+        [InlineKeyboardButton(text="🔙 К чатам", callback_data="chats:list")],
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
 def sync_accounts_kb(accounts: list) -> InlineKeyboardMarkup:
@@ -95,7 +120,7 @@ def sync_accounts_kb(accounts: list) -> InlineKeyboardMarkup:
         for a in accounts
     ]
     rows.append([InlineKeyboardButton(text="🔄 Все аккаунты", callback_data="sync:all")])
-    rows.append([InlineKeyboardButton(text="🔙 Назад", callback_data="back:main")])
+    rows.append([InlineKeyboardButton(text="🔙 Закрыть", callback_data="back:main")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -104,5 +129,18 @@ def add_chat_accounts_kb(accounts: list) -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text=a.name, callback_data=f"addchat_acc:{a.id}")]
         for a in accounts
     ]
-    rows.append([InlineKeyboardButton(text="🔙 Назад", callback_data="back:main")])
+    rows.append([InlineKeyboardButton(text="🔙 Закрыть", callback_data="back:main")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def settings_kb() -> InlineKeyboardMarkup:
+    rows = []
+    for minutes, label in INTERVAL_PRESETS[:4]:
+        rows.append([
+            InlineKeyboardButton(
+                text=f"Интервал всем: {label}",
+                callback_data=f"set_interval_all:{minutes}",
+            )
+        ])
+    rows.append([InlineKeyboardButton(text="🔙 Закрыть", callback_data="back:main")])
     return InlineKeyboardMarkup(inline_keyboard=rows)

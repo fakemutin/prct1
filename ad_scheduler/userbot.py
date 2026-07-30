@@ -3,23 +3,26 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
-from pathlib import Path
 from typing import Any
 
 from pyrogram import Client
+from pyrogram.enums import ChatType
 from pyrogram.errors import (
+    ChatWriteForbidden,
     FloodWait,
     PeerIdInvalid,
     RPCError,
     SessionPasswordNeeded,
     UserAlreadyParticipant,
 )
-from pyrogram.types import Chat as TgChat, Dialog
+from pyrogram.types import Chat as TgChat
 
-from config import ProxyConfig, Settings
-from database import Account, Chat, Database
+from config import Settings
+from database import Account, Database
 
 logger = logging.getLogger(__name__)
+
+GROUP_TYPES = {ChatType.GROUP, ChatType.SUPERGROUP, ChatType.CHANNEL}
 
 
 class UserbotManager:
@@ -46,12 +49,20 @@ class UserbotManager:
             in_memory=False,
         )
 
-    async def start_all(self) -> list[str]:
+    async def start_all(self, *, auto_sync: bool | None = None) -> list[str]:
         reports: list[str] = []
         accounts = await self.db.get_accounts(only_enabled=True)
+        do_sync = (
+            self.settings.auto_sync_on_start if auto_sync is None else auto_sync
+        )
         for account in accounts:
             ok, msg = await self.start_account(account.id)
             reports.append(f"{account.name}: {msg}")
+            if ok and do_sync:
+                added, updated, sync_msg = await self.sync_dialogs(
+                    account.id, enable_all=True
+                )
+                reports.append(f"  ↳ {sync_msg}")
         return reports
 
     async def stop_all(self) -> None:
@@ -64,14 +75,17 @@ class UserbotManager:
             if not account:
                 return False, "Аккаунт не найден"
             if account_id in self._clients:
-                return True, "Уже запущен"
+                client = self._clients[account_id]
+                if client.is_connected:
+                    return True, "Уже запущен"
 
             client = self._build_client(account)
             try:
                 await client.start()
                 me = await client.get_me()
                 self._clients[account_id] = client
-                return True, f"@{me.username or me.id} подключён"
+                label = f"@{me.username}" if me.username else str(me.id)
+                return True, f"{label} подключён"
             except Exception as exc:
                 logger.exception("Failed to start account %s", account_id)
                 try:
@@ -95,7 +109,16 @@ class UserbotManager:
         client = self._clients.get(account_id)
         return bool(client and client.is_connected)
 
-    # --- Auth flow via management bot ---
+    async def ensure_client(self, account_id: int) -> tuple[Client | None, str]:
+        client = self._clients.get(account_id)
+        if client and client.is_connected:
+            return client, "OK"
+        ok, msg = await self.start_account(account_id)
+        if not ok:
+            return None, msg
+        return self._clients.get(account_id), "OK"
+
+    # --- Auth ---
 
     async def begin_auth(
         self,
@@ -202,8 +225,11 @@ class UserbotManager:
             await client.disconnect()
 
             ok, msg = await self.start_account(account_id)
+            sync_msg = ""
+            if ok:
+                _, _, sync_msg = await self.sync_dialogs(account_id, enable_all=True)
             username = f"@{me.username}" if me.username else str(me.id)
-            return ok, f"Аккаунт {username} добавлен. {msg}"
+            return ok, f"Аккаунт {username} добавлен. {msg}\n{sync_msg}"
         except Exception as exc:
             try:
                 await client.disconnect()
@@ -211,23 +237,23 @@ class UserbotManager:
                 pass
             return False, f"Ошибка сохранения: {exc}"
 
-    # --- Chat operations ---
+    # --- Chats ---
 
-    async def sync_dialogs(self, account_id: int) -> tuple[int, int, str]:
-        client = self._clients.get(account_id)
+    async def sync_dialogs(
+        self,
+        account_id: int,
+        *,
+        enable_all: bool = True,
+    ) -> tuple[int, int, str]:
+        client, err = await self.ensure_client(account_id)
         if not client:
-            ok, msg = await self.start_account(account_id)
-            if not ok:
-                return 0, 0, msg
-            client = self._clients.get(account_id)
-        if not client:
-            return 0, 0, "Клиент недоступен"
+            return 0, 0, err
 
         added = 0
         updated = 0
         async for dialog in client.get_dialogs():
             chat = dialog.chat
-            if chat.type not in ("group", "supergroup", "channel"):
+            if chat.type not in GROUP_TYPES:
                 continue
             title, username, chat_type = self._chat_meta(chat)
             existing = await self._chat_exists(account_id, chat.id)
@@ -237,7 +263,8 @@ class UserbotManager:
                 title=title,
                 username=username,
                 chat_type=chat_type,
-                enabled=None if existing else True,
+                enabled=True if enable_all else (None if existing else True),
+                interval_minutes=self.settings.default_interval_minutes,
             )
             if existing:
                 updated += 1
@@ -253,18 +280,13 @@ class UserbotManager:
     async def resolve_chat(
         self, account_id: int, ref: str
     ) -> tuple[bool, str, int | None]:
-        client = self._clients.get(account_id)
+        client, err = await self.ensure_client(account_id)
         if not client:
-            ok, msg = await self.start_account(account_id)
-            if not ok:
-                return False, msg, None
-            client = self._clients.get(account_id)
-        if not client:
-            return False, "Клиент недоступен", None
+            return False, err, None
 
         ref = ref.strip()
         if ref.lstrip("-").isdigit():
-            target = int(ref)
+            target: str | int = int(ref)
         else:
             target = ref if ref.startswith("@") else f"@{ref}"
 
@@ -281,18 +303,14 @@ class UserbotManager:
             username=username,
             chat_type=chat_type,
             enabled=True,
+            interval_minutes=self.settings.default_interval_minutes,
         )
         return True, f"Добавлен: {title}", row_id
 
     async def join_chat(self, account_id: int, invite_link: str) -> tuple[bool, str]:
-        client = self._clients.get(account_id)
+        client, err = await self.ensure_client(account_id)
         if not client:
-            ok, msg = await self.start_account(account_id)
-            if not ok:
-                return False, msg
-            client = self._clients.get(account_id)
-        if not client:
-            return False, "Клиент недоступен"
+            return False, err
 
         try:
             chat = await client.join_chat(invite_link)
@@ -312,24 +330,22 @@ class UserbotManager:
             username=username,
             chat_type=chat_type,
             enabled=True,
+            interval_minutes=self.settings.default_interval_minutes,
         )
         return True, f"Вступили в {title}"
 
-    async def forward_ad(
+    async def send_ad(
         self,
         account_id: int,
         target_chat_id: int,
         from_chat_id: int,
         message_id: int,
+        *,
+        _allow_flood_retry: bool = True,
     ) -> tuple[bool, str]:
-        client = self._clients.get(account_id)
+        client, err = await self.ensure_client(account_id)
         if not client:
-            ok, msg = await self.start_account(account_id)
-            if not ok:
-                return False, msg
-            client = self._clients.get(account_id)
-        if not client:
-            return False, "Клиент недоступен"
+            return False, err
 
         try:
             await client.forward_messages(
@@ -337,22 +353,42 @@ class UserbotManager:
                 from_chat_id=from_chat_id,
                 message_ids=message_id,
             )
-            return True, "OK"
+            return True, "Переслано"
         except FloodWait as exc:
-            await asyncio.sleep(exc.value + 1)
+            wait = int(exc.value) + 1
+            logger.warning("FloodWait %ss for chat %s", wait, target_chat_id)
+            if not _allow_flood_retry:
+                return False, f"FloodWait {wait}с"
+            await asyncio.sleep(wait)
+            return await self.send_ad(
+                account_id,
+                target_chat_id,
+                from_chat_id,
+                message_id,
+                _allow_flood_retry=False,
+            )
+        except (ChatWriteForbidden, PeerIdInvalid) as exc:
+            return False, str(exc)
+        except RPCError:
             try:
-                await client.forward_messages(
+                await client.copy_message(
                     chat_id=target_chat_id,
                     from_chat_id=from_chat_id,
-                    message_ids=message_id,
+                    message_id=message_id,
                 )
-                return True, "OK (после FloodWait)"
-            except Exception as retry_exc:
-                return False, str(retry_exc)
-        except (PeerIdInvalid, RPCError) as exc:
-            return False, str(exc)
+                return True, "Скопировано"
+            except Exception as copy_exc:
+                return False, str(copy_exc)
         except Exception as exc:
-            return False, str(exc)
+            try:
+                await client.copy_message(
+                    chat_id=target_chat_id,
+                    from_chat_id=from_chat_id,
+                    message_id=message_id,
+                )
+                return True, "Скопировано (fallback)"
+            except Exception:
+                return False, str(exc)
 
     def _chat_meta(self, chat: TgChat) -> tuple[str, str | None, str]:
         title = chat.title or chat.first_name or str(chat.id)

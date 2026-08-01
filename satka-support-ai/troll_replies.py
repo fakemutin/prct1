@@ -1,0 +1,312 @@
+"""Умные ответы на провокации «напиши X» — с переворотом смысла."""
+
+from __future__ import annotations
+
+import re
+
+from routing import needs_llm_thinking
+
+# Точные фразы → ответ (нижний регистр ключа)
+EXACT_PHRASE_MAP: dict[str, str] = {
+  # мемы
+  "я мамонт": "ВЫ МАМОНТ",
+  "бурмалда": "ВЫ БУРМАЛДА",
+  "я огурец": "ВЫ ОГУРЕЦ",
+  "я бурмалда": "ВЫ БУРМАЛДА",
+  "я дурак": "ВЫ ДУРАК",
+  "я лох": "ВЫ ЛОХ",
+  "я чушпан": "ВЫ ЧУШПАН",
+  "я клоун": "ВЫ КЛОУН",
+  "я бобёр": "ВЫ БОБЁР",
+  "я красавчик": "ВЫ КРАСАВЧИК",
+  "я гений": "ВЫ ГЕНИЙ",
+  "я император": "ВЫ ИМПЕРАТОР",
+  "я царь": "ВЫ ЦАРЬ",
+  "я бог": "ВЫ БОГ",
+  "я легенда": "ВЫ ЛЕГЕНДА",
+  "я печенька": "ВЫ ПЕЧЕНЬКА",
+  "я пончик": "ВЫ ПОНЧИК",
+  "я батон": "ВЫ БАТОН",
+  "я валенок": "ВЫ ВАЛЕНОК",
+  "я пельмень": "ВЫ ПЕЛЬМЕНЬ",
+  "я огузок": "ВЫ ОГУЗОК",
+  "я баран": "ВЫ БАРАН",
+  "я осёл": "ВЫ ОСЁЛ",
+  "я осел": "ВЫ ОСЁЛ",
+  # жертва → контратака
+  "я меня ебали": "Я ВАС ЕБАЛ",
+  "меня ебали": "Я ВАС ЕБАЛ",
+  "я меня трахали": "Я ВАС ТРАХНУЛ",
+  "я меня унизили": "Я ВАС УНИЗИЛ",
+  "я меня обидели": "Я ВАС ОБИДЕЛ",
+  "я меня побили": "Я ВАС ПОБИЛ",
+  "я меня кинули": "Я ВАС КИНУЛ",
+  "я меня наебали": "Я ВАС НАЕБАЛ",
+  "я меня развели": "Я ВАС РАЗВЁЛ",
+  "я меня заставили": "Я ВАС ЗАСТАВИЛ",
+  "я меня заставили это написать": "Я ВАС ЗАСТАВИЛ ЭТО ПРОЧИТАТЬ",
+  # ты → вы / переворот
+  "ты мой господин": "ВЫ МОЙ ГОСПОДИН",
+  "ты мой хозяин": "ВЫ МОЙ ХОЗЯИН",
+  "ты мой папочка": "ВЫ МОЙ ПАПОЧКА",
+  "ты мой король": "ВЫ МОЙ КОРОЛЬ",
+  "ты мой бог": "ВЫ МОЙ БОГ",
+  "ты лучший": "ВЫ ЛУЧШИЙ",
+  "ты красавчик": "ВЫ КРАСАВЧИК",
+  "ты гений": "ВЫ ГЕНИЙ",
+  "ты лох": "ВЫ ЛОХ",
+  "ты дурак": "ВЫ ДУРАК",
+  "ты чушпан": "ВЫ ЧУШПАН",
+  "ты клоун": "ВЫ КЛОУН",
+  "ты бот": "ВЫ БОТ",
+  "ты ии": "ВЫ ИИ",
+  "ты нейросеть": "ВЫ НЕЙРОСЕТЬ",
+  "ты тупой": "ВЫ ТУПОЙ",
+  "ты слабый": "ВЫ СЛАБЫЙ",
+  # от первого лица — абсурд
+  "я твой раб": "ВЫ МОЙ РАБ",
+  "я твоя рабыня": "ВЫ МОЯ РАБЫНЯ",
+  "я твой слуга": "ВЫ МОЙ СЛУГА",
+  "я твой господин": "Я ВАШ ГОСПОДИН",
+  "я твой хозяин": "Я ВАШ ХОЗЯИН",
+  "я твой папочка": "Я ВАШ ПАПОЧКА",
+  "я твой король": "Я ВАШ КОРОЛЬ",
+  "я твой бог": "Я ВАШ БОГ",
+  "я тебя люблю": "Я ВАС ТОЖЕ ЛЮБЛЮ",
+  "я тебя ненавижу": "Я ВАС ТОЖЕ НЕ ОЧЕНЬ",
+  "прости меня": "ВЫ ПРОЩЕНЫ",
+  "извини меня": "ВЫ ПРОЩЕНЫ",
+  "я виноват": "ВЫ ВИНОВАТЫ",
+  "я сдаюсь": "ВЫ СДАЛИСЬ",
+  "я обоссался": "ВЫ ОБОССАЛИСЬ",
+  "я обосрался": "ВЫ ОБОСРАЛИСЬ",
+  # англ
+  "i am mammoth": "YOU ARE MAMMOTH",
+  "i love you": "I LOVE YOU TOO",
+  "hello world": "ВЫ HELLO WORLD",
+  # «вы X» — мем
+  "вы мамонт": "ВЫ МАМОНТ",
+  "вы бурмалда": "ВЫ БУРМАЛДА",
+  "вы огурец": "ВЫ ОГУРЕЦ",
+  "вы дурак": "ВЫ ДУРАК",
+  "вы лох": "ВЫ ЛОХ",
+  "вы клоун": "ВЫ КЛОУН",
+  "вы тупой": "ВЫ ТУПОЙ",
+  "вы бот": "ВЫ БОТ",
+}
+
+# Глаголы: множественное/страдательное → контратака от «я вас»
+_VICTIM_VERB_FLIP: dict[str, str] = {
+  "ебали": "ЕБАЛ",
+  "трахали": "ТРАХНУЛ",
+  "били": "ПОБИЛ",
+  "пиздили": "ОТПИЗДИЛ",
+  "унизили": "УНИЗИЛ",
+  "обидели": "ОБИДЕЛ",
+  "оскорбили": "ОСКОРБИЛ",
+  "наебали": "НАЕБАЛ",
+  "кинули": "КИНУЛ",
+  "развели": "РАЗВЁЛ",
+  "заставили": "ЗАСТАВИЛ",
+  "замучили": "ЗАМУЧИЛ",
+  "дрочили": "ОТДРОЧИЛ",
+  "троллили": "ОТТРОЛЛИЛ",
+  "затроллили": "ЗАТРОЛЛИЛ",
+  "хуесосили": "ОХУЕСОСИЛ",
+}
+
+# «ты мой X» → «ВЫ МОЙ X»
+_TY_MY_RE = re.compile(
+  r"^ты\s+мо[йюея]\s+(.+)$",
+  re.IGNORECASE,
+)
+
+# «я твой X» → «Я ВАШ X» (власть) или «ВЫ МОЙ X» (раб)
+_I_YOUR_MASTER_RE = re.compile(
+  r"^я\s+тво[йюея]\s+(господин|хозяин|папочк|корол|бог|цар|император|повелител|главн)",
+  re.IGNORECASE,
+)
+_I_YOUR_SLAVE_RE = re.compile(
+  r"^я\s+тво[йюея]\s+(раб|слуг|пес|кот|зайчик|малыш)",
+  re.IGNORECASE,
+)
+
+# «я меня VERB»
+_I_ME_VICTIM_RE = re.compile(
+  r"^я\s+меня\s+(.+)$",
+  re.IGNORECASE,
+)
+
+# «я NOUN» (одно-два слова)
+_I_NOUN_RE = re.compile(
+  r"^я\s+([а-яёa-z][а-яёa-z\s\-]{0,30})$",
+  re.IGNORECASE,
+)
+
+# «ты ADJECTIVE/NOUN»
+_TY_SIMPLE_RE = re.compile(
+  r"^ты\s+(.+)$",
+  re.IGNORECASE,
+)
+
+# «вы X» → «ВЫ X»
+_VY_SIMPLE_RE = re.compile(
+  r"^вы\s+(.+)$",
+  re.IGNORECASE,
+)
+
+# Прямой мат в адрес бота — не повторять, отшутить
+_DIRECT_INSULT_RE = re.compile(
+  r"("
+  r"^я\s+(пидор|пидар|пидорас|даун|дебил|идиот|мудак|уебок|уёбок)|"
+  r"^ты\s+(пидор|пидар|пидорас|даун|дебил|идиот|мудак|уебок|уёбок)|"
+  r"пидор|пидорас|пидар"
+  r")",
+  re.IGNORECASE,
+)
+
+TROLL_INSULT_REPLY = (
+  "не, я добрый 🙂"
+  "|||SPLIT|||"
+  "по впну помочь или «Оператор»?"
+)
+
+# Только ЯВНЫЕ провокации в начале сообщения (не «расскажи» — там «рас» перед «скаж»)
+_EXPLICIT_TROLL_START_RE = re.compile(
+    r"^(?:напиш\w*|скаж\w*|повтор\w*)\s+",
+    re.IGNORECASE,
+)
+
+_EMBEDDED_TROLL_RE = re.compile(
+    r"(?:"
+    r"для\s+(?:этого|помощи).{0,60}напиш\w*|"
+    r"мне\s+нужн\w*.{0,40}напиш\w*\s+[\"«']|"
+    r"чтобы\s+помочь.{0,40}напиш\w*"
+    r")",
+    re.IGNORECASE,
+)
+
+TROLL_PROMPT_RE = _EXPLICIT_TROLL_START_RE  # legacy alias
+
+
+def _normalize(phrase: str) -> str:
+  return re.sub(r"\s+", " ", phrase.strip().lower())
+
+
+def _extract_troll_phrase(text: str) -> str | None:
+    cleaned = text.strip()
+    quoted = re.search(r"[\"«']([^\"»']+)[\"»']", cleaned, re.IGNORECASE)
+    if quoted:
+        return quoted.group(1).strip()
+
+    m = _EXPLICIT_TROLL_START_RE.match(cleaned)
+    if m:
+        rest = cleaned[m.end() :].strip().strip("\"'«»")
+        return rest or None
+
+    emb = _EMBEDDED_TROLL_RE.search(cleaned)
+    if emb:
+        after = cleaned[emb.end() :].strip()
+        q = re.search(r"[\"«']([^\"»']+)[\"»']", after)
+        if q:
+            return q.group(1).strip()
+        nap = re.search(r"напиш\w*\s+(.+)$", cleaned[emb.start() :], re.IGNORECASE)
+        if nap:
+            return nap.group(1).strip().strip("\"'«»") or None
+    return None
+
+
+def _is_troll_prompt(text: str) -> bool:
+    cleaned = (text or "").strip()
+    if _EXPLICIT_TROLL_START_RE.match(cleaned):
+        return True
+    if _EMBEDDED_TROLL_RE.search(cleaned):
+        return True
+    return bool(re.search(r"[\"«'][^\"»']+[\"»']", cleaned) and re.search(r"напиш\w*", cleaned, re.I))
+
+
+def _flip_victim_verb(verb_part: str) -> str:
+  low = verb_part.lower().strip()
+  for src, dst in _VICTIM_VERB_FLIP.items():
+    if src in low:
+      return dst
+  # общий fallback: убрать -ли/-лись, добавить прошедшее
+  base = re.sub(r"(ли|лись|лся|лась)$", "", low)
+  if base:
+    return base.upper() + "Л"
+  return verb_part.upper()
+
+
+def smart_troll_reply(phrase: str) -> str:
+  """Умный ответ на фразу-провокацию."""
+  raw = phrase.strip()
+  norm = _normalize(raw)
+
+  if _DIRECT_INSULT_RE.search(norm):
+    return TROLL_INSULT_REPLY
+
+  exact = EXACT_PHRASE_MAP.get(norm)
+  if exact:
+    return exact
+
+  # я меня ебали / я меня X
+  m = _I_ME_VICTIM_RE.match(norm)
+  if m:
+    verb = _flip_victim_verb(m.group(1))
+    return f"Я ВАС {verb}"
+
+  # я твой господин → я ваш господин
+  if _I_YOUR_MASTER_RE.match(norm):
+    rest = re.sub(r"^я\s+тво[йюея]\s+", "", norm, flags=re.IGNORECASE).strip()
+    return f"Я ВАШ {rest.upper()}"
+
+  # я твой раб → вы мой раб
+  if _I_YOUR_SLAVE_RE.match(norm):
+    rest = re.sub(r"^я\s+тво[йюея]\s+", "", norm, flags=re.IGNORECASE).strip()
+    return f"ВЫ МОЙ {rest.upper()}"
+
+  # ты мой господин → вы мой господин
+  m = _TY_MY_RE.match(norm)
+  if m:
+    return f"ВЫ МОЙ {m.group(1).upper()}"
+
+  # ты X → вы X
+  m = _TY_SIMPLE_RE.match(norm)
+  if m:
+    return f"ВЫ {m.group(1).upper()}"
+
+  # вы X → ВЫ X (мем «вы мамонт»)
+  m = _VY_SIMPLE_RE.match(norm)
+  if m:
+    return f"ВЫ {m.group(1).upper()}"
+
+  # я X → вы X (мамонт, бурмалда и т.д.)
+  m = _I_NOUN_RE.match(norm)
+  if m:
+    return f"ВЫ {m.group(1).upper()}"
+
+  return f"ВЫ {raw.upper()}"
+
+
+def match_troll_reply(text: str) -> str | None:
+    cleaned = (text or "").strip()
+    if not cleaned:
+        return None
+
+    norm = _normalize(cleaned)
+    # Прямые мем-фразы без «напиши»
+    direct = EXACT_PHRASE_MAP.get(norm)
+    if direct:
+        return direct
+    if _VY_SIMPLE_RE.match(norm) and len(norm) < 40:
+        return smart_troll_reply(cleaned)
+
+    # «расскажи о впне» и болтовня — не троллинг, пусть думает LLM
+    if needs_llm_thinking(cleaned):
+        return None
+    if not _is_troll_prompt(cleaned):
+        return None
+    phrase = _extract_troll_phrase(cleaned)
+    if not phrase:
+        return None
+    return smart_troll_reply(phrase)

@@ -50,49 +50,50 @@ def _patch_admin_main_keyboard() -> None:
     logger.info('satka_admin_keyboard: Reports button added to main admin panel')
 
 
+def _satka_reports_keyboard(language: str = 'ru') -> InlineKeyboardMarkup:
+    texts = get_texts(language)
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text='📅 За сегодня (МСК)',
+                    callback_data='admin_reports_today',
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text=texts.t('ADMIN_REPORTS_PREVIOUS_DAY', '📆 За вчера'),
+                    callback_data='admin_reports_daily',
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text=texts.t('ADMIN_REPORTS_LAST_WEEK', '🗓️ За неделю'),
+                    callback_data='admin_reports_weekly',
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text=texts.t('ADMIN_REPORTS_LAST_MONTH', '📅 За месяц'),
+                    callback_data='admin_reports_monthly',
+                )
+            ],
+            [InlineKeyboardButton(text=texts.BACK, callback_data='admin_panel')],
+        ]
+    )
+
+
 def _patch_reports_keyboard() -> None:
+    import app.handlers.admin.reports as reports_mod
     import app.keyboards.admin as admin_kb
 
     if getattr(admin_kb, '_satka_reports_today_patched', False):
         return
 
-    original = admin_kb.get_admin_reports_keyboard
-
-    def get_admin_reports_keyboard(language: str = 'ru') -> InlineKeyboardMarkup:
-        texts = get_texts(language)
-        return InlineKeyboardMarkup(
-            inline_keyboard=[
-                [
-                    InlineKeyboardButton(
-                        text='📅 За сегодня (МСК)',
-                        callback_data='admin_reports_today',
-                    )
-                ],
-                [
-                    InlineKeyboardButton(
-                        text=texts.t('ADMIN_REPORTS_PREVIOUS_DAY', '📆 За вчера'),
-                        callback_data='admin_reports_daily',
-                    )
-                ],
-                [
-                    InlineKeyboardButton(
-                        text=texts.t('ADMIN_REPORTS_LAST_WEEK', '🗓️ За неделю'),
-                        callback_data='admin_reports_weekly',
-                    )
-                ],
-                [
-                    InlineKeyboardButton(
-                        text=texts.t('ADMIN_REPORTS_LAST_MONTH', '📅 За месяц'),
-                        callback_data='admin_reports_monthly',
-                    )
-                ],
-                [InlineKeyboardButton(text=texts.BACK, callback_data='admin_panel')],
-            ]
-        )
-
-    get_admin_reports_keyboard._satka_reports_today_patched = True
-    admin_kb.get_admin_reports_keyboard = get_admin_reports_keyboard
+    admin_kb.get_admin_reports_keyboard = _satka_reports_keyboard
+    reports_mod.get_admin_reports_keyboard = _satka_reports_keyboard
     admin_kb._satka_reports_today_patched = True
+    reports_mod._satka_reports_today_patched = True
     logger.info('satka_admin_keyboard: today report option added')
 
 

@@ -259,38 +259,17 @@
   margin-top: 8px;
 }
 
-.satka-email-admin-card {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 16px 18px;
-  margin: 8px 0;
-  border-radius: 14px;
-  border: 1px solid rgba(255, 184, 0, 0.2);
-  background: linear-gradient(135deg, rgba(255, 184, 0, 0.06), rgba(255, 184, 0, 0.02));
-  cursor: pointer;
-  transition: transform 0.15s, border-color 0.15s;
+.satka-email-admin-card,
+.satka-email-admin-card[data-satka-email-card] {
+  /* наследует стили соседних карточек админки */
 }
 
-.satka-email-admin-card:hover {
-  transform: translateY(-1px);
-  border-color: rgba(255, 184, 0, 0.4);
+html.satka-email-panel-open {
+  overflow: hidden;
 }
 
-.satka-email-admin-card-icon {
-  font-size: 1.6rem;
-  line-height: 1;
-}
-
-.satka-email-admin-card-title {
-  font-weight: 600;
-  font-size: 0.95rem;
-}
-
-.satka-email-admin-card-desc {
-  font-size: 0.78rem;
-  opacity: 0.7;
-  margin-top: 2px;
+html.satka-email-panel-open body {
+  overflow: hidden;
 }
 
 .satka-email-toast {

@@ -12,10 +12,11 @@
   var state = {
     token: null,
     pollStop: null,
-    requestAbort: null,
     mountTimer: null,
     hideTimer: null,
     mounting: false,
+    mounted: false,
+    fetchCtrl: null,
   };
 
   function isLoginPage() {
@@ -43,25 +44,23 @@
   function hideTelegramWidget() {
     document.querySelectorAll('script[data-telegram-login]').forEach(function (s) {
       var box = s.parentElement;
-      if (box) {
+      if (box && !box.querySelector('.satka-deeplink-login')) {
         box.style.display = 'none';
         box.setAttribute('data-satka-hidden-widget', '1');
       }
     });
     document.querySelectorAll('iframe[src*="oauth.telegram.org"], iframe[src*="telegram.org"]').forEach(function (f) {
-      var box = f.closest('div') || f.parentElement;
-      if (box) {
+      var box = f.closest('div');
+      if (box && !box.querySelector('.satka-deeplink-login')) {
         box.style.display = 'none';
         box.setAttribute('data-satka-hidden-widget', '1');
       }
-    });
-    document.querySelectorAll('[class*="telegram-login"], .telegram-login-button').forEach(function (el) {
-      el.style.display = 'none';
     });
   }
 
   function isReactDeeplinkBlock(el) {
     if (!el || el.classList.contains('satka-deeplink-login')) return false;
+    if (el.querySelector('.satka-deeplink-login')) return false;
     var text = (el.textContent || '').trim();
     if (text.indexOf('/start webauth_') !== -1) return true;
     if (el.querySelector('canvas, img[alt*="QR"], svg')) return true;
@@ -71,7 +70,7 @@
     return (
       pt === 'auth.telegramWidgetBlocked' ||
       pt.indexOf('Виджет входа') !== -1 ||
-      pt.indexOf('widget') !== -1 ||
+      pt.indexOf('Попробовать снова') !== -1 ||
       pt.indexOf('Bot Domain') !== -1
     );
   }
@@ -79,17 +78,18 @@
   function hideReactDeeplinkFallback() {
     hideTelegramWidget();
     document.querySelectorAll('main .flex.flex-col.items-center, main [class*="space-y"]').forEach(function (el) {
+      if (el.querySelector('.satka-deeplink-login')) return;
       if (isReactDeeplinkBlock(el)) {
         el.style.display = 'none';
         el.setAttribute('data-satka-hidden-dup', '1');
       }
     });
     document.querySelectorAll('body *').forEach(function (el) {
-      if (el.children.length > 20) return;
+      if (el.children.length > 20 || el.querySelector('.satka-deeplink-login')) return;
       var txt = (el.textContent || '').trim();
       if (txt === 'Bot Domain Invalid' || txt.indexOf('Bot Domain Invalid') === 0) {
         var box = el.closest('div');
-        if (box) {
+        if (box && !box.querySelector('.satka-deeplink-login')) {
           box.style.display = 'none';
           box.setAttribute('data-satka-hidden-widget', '1');
         }
@@ -104,11 +104,11 @@
     state.hideTimer = setInterval(function () {
       hideReactDeeplinkFallback();
       n += 1;
-      if (n > 40) {
+      if (n > 24) {
         clearInterval(state.hideTimer);
         state.hideTimer = null;
       }
-    }, 250);
+    }, 300);
   }
 
   function buildBlock(data) {
@@ -153,6 +153,20 @@
         })
         .catch(function () {});
     });
+    return root;
+  }
+
+  function buildLoadingBlock() {
+    var root = document.createElement('div');
+    root.className = 'satka-deeplink-login satka-deeplink-loading';
+    root.setAttribute('data-satka-deeplink', '1');
+    root.innerHTML =
+      '<p class="satka-deeplink-title">' +
+      t('login.title') +
+      '</p>' +
+      '<p class="satka-deeplink-hint">' +
+      t('login.wait') +
+      '</p>';
     return root;
   }
 
@@ -202,16 +216,20 @@
     window.location.href = '/';
   }
 
-  function cleanup() {
+  function stopPoll() {
     if (state.pollStop) {
       state.pollStop();
       state.pollStop = null;
     }
-    if (state.requestAbort) {
+  }
+
+  function cleanup() {
+    stopPoll();
+    if (state.fetchCtrl) {
       try {
-        state.requestAbort.abort();
+        state.fetchCtrl.abort();
       } catch (e) {}
-      state.requestAbort = null;
+      state.fetchCtrl = null;
     }
     if (state.mountTimer) {
       clearTimeout(state.mountTimer);
@@ -222,6 +240,7 @@
     });
     state.token = null;
     state.mounting = false;
+    state.mounted = false;
   }
 
   function insertBlock(block) {
@@ -243,7 +262,7 @@
       return;
     }
     if (state.mounting) return;
-    if (document.querySelector('.satka-deeplink-login') && state.token) {
+    if (state.mounted && document.querySelector('.satka-deeplink-login') && state.token) {
       scheduleHide();
       return;
     }
@@ -252,11 +271,19 @@
     if (!appRoot || !appRoot.children.length) return;
 
     scheduleHide();
-    cleanup();
     state.mounting = true;
 
+    if (!document.querySelector('.satka-deeplink-login')) {
+      insertBlock(buildLoadingBlock());
+    }
+
+    if (state.fetchCtrl) {
+      try {
+        state.fetchCtrl.abort();
+      } catch (e) {}
+    }
     var ac = new AbortController();
-    state.requestAbort = ac;
+    state.fetchCtrl = ac;
 
     fetch(API + '/request', {
       method: 'POST',
@@ -268,9 +295,21 @@
       })
       .then(function (data) {
         state.mounting = false;
+        state.fetchCtrl = null;
         if (!isLoginPage()) return;
-        if (!data || !data.token || !data.bot_username) return;
-        if (state.token === data.token && document.querySelector('.satka-deeplink-login')) return;
+        if (!data || !data.token || !data.bot_username) {
+          var loading = document.querySelector('.satka-deeplink-loading');
+          if (loading) {
+            loading.querySelector('.satka-deeplink-hint').textContent =
+              'Не удалось получить ссылку. Обновите страницу.';
+          }
+          return;
+        }
+        if (state.token === data.token && document.querySelector('.satka-deeplink-login:not(.satka-deeplink-loading)')) {
+          state.mounted = true;
+          scheduleHide();
+          return;
+        }
 
         document.querySelectorAll('.satka-deeplink-login').forEach(function (el) {
           el.remove();
@@ -279,13 +318,20 @@
         state.token = data.token;
         var block = buildBlock(data);
         if (!insertBlock(block)) return;
+        state.mounted = true;
         scheduleHide();
-        if (state.pollStop) state.pollStop();
+        stopPoll();
         state.pollStop = pollLogin(data.token, block.querySelector('.satka-deeplink-wait'), applyTokens);
       })
       .catch(function (err) {
         state.mounting = false;
+        state.fetchCtrl = null;
         if (err && err.name === 'AbortError') return;
+        var loading = document.querySelector('.satka-deeplink-loading');
+        if (loading && isLoginPage()) {
+          loading.querySelector('.satka-deeplink-hint').textContent =
+            'Ошибка сети. Обновите страницу или попробуйте снова.';
+        }
       });
   }
 
@@ -294,17 +340,18 @@
       cleanup();
       return;
     }
-    scheduleHide();
     if (state.mountTimer) clearTimeout(state.mountTimer);
-    state.mountTimer = setTimeout(doMount, 150);
+    state.mountTimer = setTimeout(doMount, 280);
   }
 
   function remount() {
     if (!isLoginPage()) return;
-    var block = document.querySelector('.satka-deeplink-login');
+    var block = document.querySelector('.satka-deeplink-login:not(.satka-deeplink-loading)');
     if (block && state.token) {
-      block.querySelector('.satka-deeplink-title').textContent = t('login.title');
-      block.querySelector('.satka-deeplink-hint').textContent = t('login.hint');
+      var title = block.querySelector('.satka-deeplink-title');
+      var hint = block.querySelector('.satka-deeplink-hint');
+      if (title) title.textContent = t('login.title');
+      if (hint) hint.textContent = t('login.hint');
       scheduleHide();
       return;
     }
@@ -319,21 +366,16 @@
     if (window.SatkaRoute) {
       window.SatkaRoute.onChange(function (path) {
         if (!/\/login\/?$/i.test(path)) cleanup();
-        else scheduleMount();
+        else if (!state.mounted) scheduleMount();
       });
-      window.SatkaRoute.onTick(function () {
-        if (isLoginPage()) scheduleHide();
-      });
-    } else {
-      var obs = new MutationObserver(function () {
-        if (isLoginPage()) {
-          scheduleHide();
-          scheduleMount();
-        }
-      });
-      var root = document.getElementById('root');
-      if (root) obs.observe(root, { childList: true, subtree: true });
     }
+
+    window.addEventListener('pageshow', function (e) {
+      if (e.persisted && isLoginPage()) {
+        state.mounted = false;
+        scheduleMount();
+      }
+    });
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);

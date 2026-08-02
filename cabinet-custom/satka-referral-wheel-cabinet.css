@@ -64,6 +64,20 @@ html[data-satka-theme='rose'] .satka-cabinet-wheel-block {
   --satka-wheel-text-b: #ffe8ee;
   --satka-wheel-hub: #14080c;
 }
+html[data-satka-theme='liquid-glass'] .satka-cabinet-wheel-block {
+  --satka-wheel-seg-a: #0c1428;
+  --satka-wheel-seg-b: #182440;
+  --satka-wheel-icon-a: #d8e8ff;
+  --satka-wheel-text-a: #f0f6ff;
+  --satka-wheel-icon-b: #a8c8ff;
+  --satka-wheel-text-b: #dce8ff;
+  --satka-wheel-hub: #08101c;
+  backdrop-filter: blur(20px) saturate(1.5);
+  -webkit-backdrop-filter: blur(20px) saturate(1.5);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.14),
+    0 16px 48px rgba(0, 0, 0, 0.28);
+}
 
 /* Hide background orbs behind wheel (fixes square blur artifact in TG) */
 html.satka-on-referral .satka-shell {

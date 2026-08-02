@@ -12,6 +12,7 @@
     { id: 'midnight', swatch: '#60a5fa' },
     { id: 'aurora', swatch: '#2dd4bf' },
     { id: 'rose', swatch: '#fb7185' },
+    { id: 'liquid-glass', swatch: 'linear-gradient(135deg,#8cb4ff,#c49cff,#64e8d2)' },
   ];
   var CHROME_COLORS = {
     dark: '#030303',
@@ -19,6 +20,7 @@
     midnight: '#080d18',
     aurora: '#061210',
     rose: '#10080c',
+    'liquid-glass': '#070b14',
   };
   var isTelegram =
     document.documentElement.classList.contains('satka-in-telegram') ||
@@ -102,9 +104,13 @@
       var btn = document.createElement('button');
       btn.type = 'button';
       btn.dataset.theme = item.id;
+      var swatchStyle =
+        item.swatch.indexOf('gradient') !== -1
+          ? 'background:' + item.swatch
+          : 'background:' + item.swatch;
       btn.innerHTML =
-        '<span class="satka-theme-swatch" style="background:' +
-        item.swatch +
+        '<span class="satka-theme-swatch" style="' +
+        swatchStyle +
         '"></span>' +
         '<span>' +
         t('theme.' + item.id) +

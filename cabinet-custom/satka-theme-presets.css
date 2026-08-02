@@ -258,7 +258,8 @@ html[data-satka-theme='light'] * {
 /* Alt dark themes — soften harsh pure black cards */
 html[data-satka-theme='midnight'] #root header,
 html[data-satka-theme='aurora'] #root header,
-html[data-satka-theme='rose'] #root header {
+html[data-satka-theme='rose'] #root header,
+html[data-satka-theme='liquid-glass'] #root header {
   border-bottom-color: var(--satka-border) !important;
 }
 
@@ -454,6 +455,7 @@ html.satka-in-telegram[data-satka-theme='light'] #root [class*='BottomNav'] {
 /* Alt themes — ensure readable muted text */
 html[data-satka-theme='midnight'] #root [class*='text-dark-400'],
 html[data-satka-theme='aurora'] #root [class*='text-dark-400'],
-html[data-satka-theme='rose'] #root [class*='text-dark-400'] {
+html[data-satka-theme='rose'] #root [class*='text-dark-400'],
+html[data-satka-theme='liquid-glass'] #root [class*='text-dark-400'] {
   color: var(--satka-text-muted) !important;
 }

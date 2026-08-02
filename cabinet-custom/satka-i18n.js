@@ -174,6 +174,7 @@
     'theme.midnight': 'Полночь',
     'theme.aurora': 'Аврора',
     'theme.rose': 'Розовая',
+    'theme.liquid-glass': 'Жидкое стекло',
   },
   en: {
     'home.tag': 'Personal account',
@@ -250,6 +251,7 @@
     'theme.midnight': 'Midnight',
     'theme.aurora': 'Aurora',
     'theme.rose': 'Rose',
+    'theme.liquid-glass': 'Liquid Glass',
   },
   };
 

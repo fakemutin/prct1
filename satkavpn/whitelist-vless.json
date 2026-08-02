@@ -1,0 +1,80 @@
+{
+  "servers": [
+    {
+      "number": 1,
+      "top": true,
+      "flag": "🇷🇺",
+      "label": "Россия YA",
+      "uri": "vless://bdc00b0d-e5f5-4cde-8414-6eb7ab5af117@51.250.84.76:443?flow=xtls-rprx-vision&encryption=none&type=raw&security=reality&sni=ads.x5.ru&pbk=Py03aPnCma9Ip4xCvtBsK77NScUYphSw46RmdjFSvls&sid=a374f536afccddfe&fp=ios"
+    },
+    {
+      "number": 2,
+      "top": true,
+      "flag": "🇷🇺",
+      "label": "Россия TCP",
+      "uri": "vless://566f8818-17fe-4ca9-8035-c9081ece6f68@87.242.85.201:13561?type=tcp&security=none&encryption=none&fp=edge"
+    },
+    {
+      "number": 3,
+      "flag": "🇱🇹",
+      "label": "Литва YA",
+      "uri": "vless://15e0833c-08ad-47f3-bf80-60c2a47a6774@red-fhmq5ehr3ievlnabv8l2.concept7.ru:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=api-maps.yandex.ru&pbk=KEZ93Y9VgoirI18wIpcfS3z8I9GiaiFe-GKqGdEPMmg&sid=4e07408562be&spx=%2F&type=tcp&headerType=none&fp=qq"
+    },
+    {
+      "number": 4,
+      "top": true,
+      "flag": "🇱🇻",
+      "label": "Латвия",
+      "uri": "vless://39b25b94-3b44-0037-94bf-98456f1b38a3@84.38.187.169:443?encryption=none&extra=%7B%22xmux%22%3A%7B%22cMaxReuseTimes%22%3A0%2C%22hKeepAlivePeriod%22%3A0%2C%22hMaxRequestTimes%22%3A%22600-900%22%2C%22hMaxReusableSecs%22%3A%221800-3000%22%2C%22maxConnections%22%3A2%7D%7D&path=%2Fscript&pbk=rJMYW6mHgjs61mHxfm8Gmm_Re23sV_xe5b0IrTpLsiQ&security=reality&sid=94c9dbbf07366d96&sni=mc.yandex.tr&type=xhttp&fp=qq"
+    },
+    {
+      "number": 5,
+      "flag": "🇩🇪",
+      "label": "Германия",
+      "uri": "vless://9d6104a5-fc6d-4fe6-95b7-80d8f699e09d@31.12.75.21:2087?type=xhttp&security=tls&path=%2F%3FTelegram-WangCai2&sni=ch-de.sdcards.ir&fp=firefox"
+    },
+    {
+      "number": 6,
+      "flag": "🇫🇮",
+      "label": "Финляндия",
+      "uri": "vless://70a36af9-81c5-47d1-86e2-8db4794a68df@top3471791448.mwscdn.ru:443?type=xhttp&security=tls&sni=top3471791448.mwscdn.ru&path=%2Fapi%2Fhel&mode=auto&fp=ios"
+    },
+    {
+      "number": 7,
+      "flag": "🇪🇪",
+      "label": "Эстония",
+      "uri": "vless://4523a45d-27a6-4ab4-b018-5e67e44c08ef@meadow.wildgarden.digital:443?encryption=none&security=reality&type=grpc&sni=meadow.wildgarden.digital&pbk=wSrFMqZ_OUqGzZI5QcfoclznVAhCiix1kABb6Y-OpAw&sid=eccb032323d261e6&serviceName=grpc-bridge&mode=gun&fp=qq"
+    },
+    {
+      "number": 8,
+      "flag": "🌐",
+      "label": "Anycast DE/US",
+      "uri": "vless://80887467-cd5d-0065-8607-1b9c4e4ddf87@185.253.23.123:443?encryption=none&flow=xtls-rprx-vision&pbk=Aj6Lfc0JKKROX46eHAQHlzrNpOTY9CKp7BcVj9cw8Ag&security=reality&sid=75f8575e5396a2fe&sni=cluster3.salesmarketmsk.ru&type=tcp&fp=firefox"
+    },
+    {
+      "number": 9,
+      "flag": "🇷🇺",
+      "label": "Россия #2",
+      "uri": "vless://566f8818-17fe-4ca9-8035-c9081ece6f68@176.123.165.127:57836?security=none&encryption=none&headerType=none&type=tcp"
+    },
+    {
+      "number": 10,
+      "flag": "🇹🇷",
+      "label": "Турция",
+      "uri": "vless://d768d4ba-0b73-4509-87ea-afb074d2f766@194.26.229.162:443?flow=xtls-rprx-vision&encryption=none&type=raw&security=reality&sni=tr.sellflow.org&pbk=SbVKOEMjK0sIlbwg4akyBg5mL5KZwwB-ed4eEE7YnRc&fp=firefox"
+    },
+    {
+      "number": 11,
+      "top": true,
+      "flag": "🇳🇱",
+      "label": "Нидерланды",
+      "uri": "vless://c436d7dc-170d-40bf-b2b8-6cf468db5e65@92.223.109.89:443?type=tcp&security=reality&encryption=none&flow=xtls-rprx-vision&pbk=wlCVdU8TCIBjIKRPWA6kpmptW0MV9rCP8WfWLSapsjU&sid=cc7dc5fb&sni=ads.x5.ru&fp=android"
+    },
+    {
+      "number": 12,
+      "flag": "🇳🇱",
+      "label": "Нидерланды #2",
+      "uri": "vless://86e1cbab-329e-48ca-a213-71745655886f@72.56.4.94:443?flow=xtls-rprx-vision&encryption=none&type=raw&security=reality&sni=www.gosuslugi.ru&pbk=ra-OyOGZwj9ZApabpTq2sZWIzub52UfzLvnfw1utsQg&sid=23637807&fp=safari"
+    }
+  ]
+}

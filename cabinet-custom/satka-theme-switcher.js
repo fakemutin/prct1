@@ -70,6 +70,10 @@
 
     syncTelegramChrome(theme);
 
+    if (window.SatkaThemeBoot) {
+      window.SatkaThemeBoot.apply(theme);
+    }
+
     if (!silent) {
       try {
         window.dispatchEvent(new CustomEvent('themeChanged', { detail: theme }));

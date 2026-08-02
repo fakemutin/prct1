@@ -3,6 +3,7 @@
 
   var THEME = 'liquid-glass';
   var pointerBound = false;
+  var observerBound = false;
 
   function isActive() {
     return document.documentElement.getAttribute('data-satka-theme') === THEME;
@@ -10,20 +11,18 @@
 
   function ensureGlow() {
     var shell = document.querySelector('.satka-shell');
-    if (!shell) return;
-    if (!shell.querySelector('.satka-lg-glow')) {
-      var glow = document.createElement('div');
-      glow.className = 'satka-lg-glow';
-      glow.setAttribute('aria-hidden', 'true');
-      shell.appendChild(glow);
-    }
+    if (!shell || shell.querySelector('.satka-lg-glow')) return;
+    var glow = document.createElement('div');
+    glow.className = 'satka-lg-glow';
+    glow.setAttribute('aria-hidden', 'true');
+    shell.appendChild(glow);
   }
 
   function tagGlassPanels() {
     if (!isActive()) return;
     var root = document.getElementById('root');
     if (!root) return;
-    root.querySelectorAll('.bento-card, [class*="rounded-linear"]').forEach(function (el) {
+    root.querySelectorAll('.bento-card').forEach(function (el) {
       if (el.closest('header, nav, .satka-theme-switcher')) return;
       el.classList.add('satka-lg-glass', 'satka-lg-shine');
     });
@@ -49,12 +48,23 @@
     );
   }
 
+  function bindObserver() {
+    if (observerBound || !window.MutationObserver) return;
+    var root = document.getElementById('root');
+    if (!root) return;
+    observerBound = true;
+    new MutationObserver(function () {
+      if (isActive()) tagGlassPanels();
+    }).observe(root, { childList: true, subtree: true });
+  }
+
   function boot() {
     if (isActive()) {
       document.documentElement.classList.add('satka-lg-ready');
       ensureGlow();
       tagGlassPanels();
       bindPointer();
+      bindObserver();
     } else {
       document.documentElement.classList.remove('satka-lg-ready');
     }
@@ -67,6 +77,7 @@
     window.SatkaRoute.onTick(function () {
       if (isActive()) tagGlassPanels();
     });
+    window.SatkaRoute.whenReady(boot);
   }
 
   document.addEventListener('visibilitychange', function () {

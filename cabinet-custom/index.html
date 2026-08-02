@@ -18,11 +18,13 @@
         try {
           localStorage.setItem('onboarding_completed', 'true');
           var theme = localStorage.getItem('satka-cabinet-theme-preset') || 'dark';
-          document.documentElement.setAttribute('data-satka-theme', theme);
-          document.documentElement.classList.toggle('dark', theme !== 'light');
-          document.documentElement.classList.toggle('light', theme === 'light');
-          var colors = { dark: '#030303', light: '#f4f4f6', midnight: '#080d18', aurora: '#061210', rose: '#10080c', 'liquid-glass': '#070b14' };
-          document.body.style.backgroundColor = colors[theme] || '#030303';
+          var colors = { dark: '#030303', light: '#f4f4f6', midnight: '#080d18', aurora: '#061210', rose: '#10080c', 'liquid-glass': '#050a12' };
+          var html = document.documentElement;
+          html.setAttribute('data-satka-theme', theme);
+          html.classList.toggle('dark', theme !== 'light');
+          html.classList.toggle('light', theme === 'light');
+          html.classList.toggle('satka-lg-active', theme === 'liquid-glass');
+          document.write('<style>body{background:' + (colors[theme] || '#030303') + '!important;margin:0}</style>');
         } catch (e) {}
         var mobile = window.matchMedia('(max-width: 768px)').matches;
         if (mobile) document.documentElement.classList.add('satka-mobile');
@@ -54,10 +56,25 @@
       html[data-satka-theme='light'] body {
         background: #f4f4f6;
       }
+      html[data-satka-theme='liquid-glass'],
+      html[data-satka-theme='liquid-glass'] body {
+        background: #050a12 !important;
+      }
+      html[data-satka-theme='liquid-glass'] #root {
+        background: transparent !important;
+        min-height: 100dvh;
+      }
+      html[data-satka-theme='liquid-glass'] .satka-shell {
+        opacity: 1;
+      }
+      html[data-satka-theme='liquid-glass'] .satka-shell .satka-bg {
+        background: linear-gradient(168deg, #0b1224 0%, #050a12 50%, #03060c 100%);
+      }
       #root {
         min-height: 100dvh;
       }
     </style>
+    <script src="/satka-theme-boot.js?v=1"></script>
     <script type="module" crossorigin src="/assets/index-D1lenDEX.js"></script>
     <link rel="modulepreload" crossorigin href="/assets/vendor-react-B5aZ5G0Y.js" />
     <link rel="modulepreload" crossorigin href="/assets/vendor-query-qJWxXJpd.js" />
@@ -69,9 +86,10 @@
     <link rel="modulepreload" crossorigin href="/assets/vendor-radix-CmBkAP5K.js" />
     <link rel="modulepreload" crossorigin href="/assets/vendor-cmdk-CTFjeOaw.js" />
     <link rel="stylesheet" crossorigin href="/assets/index-BRTvHGRZ.css" />
+    <link rel="preload" href="/satka-theme-liquid-glass.css?v=4" as="style" />
     <link rel="stylesheet" href="/satka-theme.css?v=18" />
     <link rel="stylesheet" href="/satka-theme-presets.css?v=11" />
-    <link rel="stylesheet" href="/satka-theme-liquid-glass.css?v=3" />
+    <link rel="stylesheet" href="/satka-theme-liquid-glass.css?v=4" />
     <link rel="stylesheet" href="/satka-support-ui.css?v=4" />
     <link rel="stylesheet" href="/satka-referral-wheel-cabinet.css?v=13" />
     <link rel="stylesheet" href="/satka-referral-ui.css?v=2" />
@@ -89,8 +107,8 @@
     <script defer src="/satka-referral-ui.js?v=1"></script>
     <script defer src="/satka-referral-wheel-cabinet.js?v=14"></script>
     <script defer src="/satka-cabinet-fx.js?v=3"></script>
-    <script defer src="/satka-theme-switcher.js?v=12"></script>
-    <script defer src="/satka-theme-liquid-glass.js?v=3"></script>
+    <script defer src="/satka-theme-switcher.js?v=13"></script>
+    <script defer src="/satka-theme-liquid-glass.js?v=4"></script>
     <script defer src="/satka-login-fix.js?v=5"></script>
     <script defer src="/satka-register-success.js?v=4"></script>
     <script defer src="/satka-admin-email-users.js?v=2"></script>

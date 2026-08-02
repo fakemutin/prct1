@@ -30,6 +30,10 @@ body,
   -webkit-font-smoothing: antialiased;
 }
 
+html[data-satka-theme='liquid-glass'] #root {
+  background-color: transparent !important;
+}
+
 body {
   overflow-x: clip;
   padding-left: env(safe-area-inset-left);

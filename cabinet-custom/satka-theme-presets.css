@@ -114,6 +114,20 @@ html[data-satka-theme='rose'] .satka-shell .satka-bg {
   background: radial-gradient(ellipse 120% 85% at 50% -25%, #2a121a 0%, var(--satka-bg) 62%);
 }
 
+/* Liquid glass: keep shell visible — root must stay transparent (see satka-theme-liquid-glass.css) */
+html[data-satka-theme='liquid-glass'] .satka-shell .satka-bg {
+  background: none;
+}
+
+html[data-satka-theme='liquid-glass'],
+html[data-satka-theme='liquid-glass'] body {
+  background-color: #070b14 !important;
+}
+
+html[data-satka-theme='liquid-glass'] #root {
+  background-color: transparent !important;
+}
+
 /* ── Cabinet chrome: header + bottom nav ── */
 html[data-satka-theme] #root header,
 html[data-satka-theme] #root [class*='Header'],

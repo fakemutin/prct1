@@ -1,215 +1,253 @@
-/* Satka — Liquid Glass theme: frosted surfaces, iridescent depth, glass refraction */
+/* Satka — Liquid Glass: vivid mesh + real frosted panels */
 
 html[data-satka-theme='liquid-glass'] {
   color-scheme: dark;
   --satka-bg: #070b14;
-  --satka-surface: rgba(255, 255, 255, 0.06);
-  --satka-border: rgba(255, 255, 255, 0.18);
-  --satka-text: #eef4ff;
-  --satka-text-muted: #9eb0cc;
+  --satka-surface: rgba(255, 255, 255, 0.1);
+  --satka-border: rgba(255, 255, 255, 0.28);
+  --satka-text: #f0f5ff;
+  --satka-text-muted: #a8b8d4;
   --satka-text-strong: #ffffff;
-  --satka-accent: #b8d4ff;
-  --satka-header-bg: rgba(12, 18, 32, 0.55);
-  --satka-nav-bg: rgba(10, 16, 28, 0.62);
-  --satka-card-bg: rgba(255, 255, 255, 0.08);
-  --satka-input-bg: rgba(255, 255, 255, 0.06);
-  --satka-hover: rgba(255, 255, 255, 0.12);
-  --satka-shadow: rgba(0, 0, 0, 0.35);
-  --satka-glass-blur: 22px;
-  --satka-glass-saturate: 1.65;
-  --satka-glass-shine: rgba(255, 255, 255, 0.45);
-  --satka-glass-rim: linear-gradient(
-    135deg,
-    rgba(255, 255, 255, 0.55) 0%,
-    rgba(255, 255, 255, 0.08) 35%,
-    rgba(130, 180, 255, 0.25) 65%,
-    rgba(255, 255, 255, 0.2) 100%
-  );
+  --satka-accent: #c8dcff;
+  --satka-header-bg: rgba(255, 255, 255, 0.1);
+  --satka-nav-bg: rgba(255, 255, 255, 0.12);
+  --satka-card-bg: rgba(255, 255, 255, 0.12);
+  --satka-input-bg: rgba(255, 255, 255, 0.08);
+  --satka-hover: rgba(255, 255, 255, 0.16);
+  --satka-shadow: rgba(0, 0, 0, 0.4);
+  --satka-glass-blur: 28px;
+  --satka-glass-saturate: 1.8;
 }
 
-/* Animated mesh backdrop */
+/* CRITICAL: transparent root so mesh + orbs show through */
+html[data-satka-theme='liquid-glass'],
+html[data-satka-theme='liquid-glass'] body {
+  background-color: #070b14 !important;
+}
+
+html[data-satka-theme='liquid-glass'] #root,
+html[data-satka-theme='liquid-glass'] #root main,
+html[data-satka-theme='liquid-glass'] #root [role='main'],
+html[data-satka-theme='liquid-glass'] #root > div {
+  background: transparent !important;
+  background-color: transparent !important;
+}
+
+html[data-satka-theme='liquid-glass'] .satka-shell {
+  z-index: 0;
+  opacity: 1;
+}
+
+html[data-satka-theme='liquid-glass'] #root {
+  position: relative;
+  z-index: 2;
+}
+
+/* Vivid animated mesh */
 html[data-satka-theme='liquid-glass'] .satka-shell .satka-bg {
   background:
-    radial-gradient(ellipse 90% 70% at 15% 10%, rgba(88, 140, 255, 0.22) 0%, transparent 55%),
-    radial-gradient(ellipse 70% 60% at 85% 20%, rgba(180, 120, 255, 0.16) 0%, transparent 50%),
-    radial-gradient(ellipse 80% 55% at 50% 100%, rgba(80, 220, 200, 0.12) 0%, transparent 55%),
-    linear-gradient(165deg, #0a1020 0%, #070b14 45%, #060910 100%);
+    radial-gradient(ellipse 100% 80% at 10% 0%, rgba(100, 160, 255, 0.45) 0%, transparent 50%),
+    radial-gradient(ellipse 80% 70% at 90% 10%, rgba(200, 120, 255, 0.35) 0%, transparent 45%),
+    radial-gradient(ellipse 90% 60% at 50% 100%, rgba(60, 220, 190, 0.3) 0%, transparent 50%),
+    radial-gradient(ellipse 60% 50% at 70% 50%, rgba(255, 180, 220, 0.15) 0%, transparent 55%),
+    linear-gradient(160deg, #0c1428 0%, #070b14 40%, #050810 100%);
+  animation: satka-lg-mesh 18s ease-in-out infinite alternate;
+}
+
+@keyframes satka-lg-mesh {
+  0% { filter: hue-rotate(0deg) saturate(1.1); }
+  100% { filter: hue-rotate(18deg) saturate(1.25); }
 }
 
 html[data-satka-theme='liquid-glass'] .satka-orb-1 {
-  background: radial-gradient(circle, rgba(140, 190, 255, 0.35) 0%, transparent 68%);
-  opacity: 0.9;
+  width: min(55vw, 520px);
+  height: min(55vw, 520px);
+  background: radial-gradient(circle, rgba(120, 180, 255, 0.55) 0%, transparent 65%);
+  opacity: 1;
+  filter: blur(80px) saturate(1.5);
+  animation: satka-lg-drift1 22s ease-in-out infinite alternate;
 }
 
 html[data-satka-theme='liquid-glass'] .satka-orb-2 {
-  background: radial-gradient(circle, rgba(200, 140, 255, 0.28) 0%, transparent 70%);
-  opacity: 0.85;
+  width: min(45vw, 420px);
+  height: min(45vw, 420px);
+  background: radial-gradient(circle, rgba(220, 140, 255, 0.45) 0%, transparent 68%);
+  opacity: 1;
+  filter: blur(70px) saturate(1.4);
+  animation: satka-lg-drift2 28s ease-in-out infinite alternate-reverse;
 }
 
 html[data-satka-theme='liquid-glass'] .satka-orb-3 {
-  background: radial-gradient(circle, rgba(100, 230, 210, 0.22) 0%, transparent 72%);
-  opacity: 0.8;
-}
-
-html:not(.satka-low-perf)[data-satka-theme='liquid-glass'] .satka-orb-1 {
-  filter: blur(72px) saturate(1.4);
-  animation: satka-lg-drift1 28s var(--satka-ease, ease) infinite alternate;
-}
-
-html:not(.satka-low-perf)[data-satka-theme='liquid-glass'] .satka-orb-2 {
-  filter: blur(64px) saturate(1.35);
-  animation: satka-lg-drift2 34s var(--satka-ease, ease) infinite alternate-reverse;
-}
-
-html:not(.satka-low-perf)[data-satka-theme='liquid-glass'] .satka-orb-3 {
-  filter: blur(56px) saturate(1.3);
-  animation: satka-lg-drift3 26s var(--satka-ease, ease) infinite alternate;
+  width: min(38vw, 360px);
+  height: min(38vw, 360px);
+  background: radial-gradient(circle, rgba(80, 240, 210, 0.4) 0%, transparent 70%);
+  opacity: 1;
+  filter: blur(60px) saturate(1.35);
+  animation: satka-lg-drift3 20s ease-in-out infinite alternate;
 }
 
 @keyframes satka-lg-drift1 {
-  to { transform: translate(6%, 8%) scale(1.08); }
+  to { transform: translate(8%, 10%) scale(1.12); }
 }
-
 @keyframes satka-lg-drift2 {
-  to { transform: translate(-7%, -4%) scale(1.06); }
+  to { transform: translate(-10%, -6%) scale(1.1); }
 }
-
 @keyframes satka-lg-drift3 {
-  to { transform: translate(4%, -7%) scale(1.05); }
+  to { transform: translate(6%, -8%) scale(1.08); }
 }
 
-/* Glass noise overlay */
-html[data-satka-theme='liquid-glass'] .satka-shell::before {
+/* Noise texture */
+html[data-satka-theme='liquid-glass'] .satka-shell::after {
   content: '';
   position: fixed;
   inset: 0;
   z-index: 1;
   pointer-events: none;
-  opacity: 0.035;
-  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
-  background-size: 180px 180px;
+  opacity: 0.05;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size: 160px;
 }
 
-/* Cursor light (position set by JS) */
+/* Cursor glow */
 html[data-satka-theme='liquid-glass'] .satka-lg-glow {
   position: fixed;
   inset: 0;
   z-index: 1;
   pointer-events: none;
   background: radial-gradient(
-    circle 28vmax at var(--satka-lg-x, 50%) var(--satka-lg-y, 30%),
-    rgba(160, 200, 255, 0.14) 0%,
-    transparent 55%
+    circle 32vmax at var(--satka-lg-x, 50%) var(--satka-lg-y, 40%),
+    rgba(180, 210, 255, 0.22) 0%,
+    rgba(140, 180, 255, 0.08) 35%,
+    transparent 60%
   );
-  transition: opacity 0.35s ease;
   opacity: 0;
+  transition: opacity 0.4s ease;
 }
 
 html[data-satka-theme='liquid-glass'].satka-lg-ready .satka-lg-glow {
   opacity: 1;
 }
 
-html.satka-low-perf[data-satka-theme='liquid-glass'] .satka-lg-glow {
-  display: none;
+/* ── Glass surfaces (shared mixin) ── */
+html[data-satka-theme='liquid-glass'] .satka-lg-glass,
+html[data-satka-theme='liquid-glass'] #root .bento-card,
+html[data-satka-theme='liquid-glass'] #root [class*='rounded-linear'],
+html[data-satka-theme='liquid-glass'] #root [class*='bg-dark-950'],
+html[data-satka-theme='liquid-glass'] #root [class*='bg-dark-900'],
+html[data-satka-theme='liquid-glass'] #root [class*='bg-dark-850'],
+html[data-satka-theme='liquid-glass'] #root [class*='bg-dark-800'],
+html[data-satka-theme='liquid-glass'] #root [class*='bg-dark-700'] {
+  position: relative;
+  background: rgba(255, 255, 255, 0.1) !important;
+  backdrop-filter: blur(var(--satka-glass-blur)) saturate(var(--satka-glass-saturate)) !important;
+  -webkit-backdrop-filter: blur(var(--satka-glass-blur)) saturate(var(--satka-glass-saturate)) !important;
+  border: 1px solid rgba(255, 255, 255, 0.22) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.35),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.06),
+    0 8px 32px rgba(0, 0, 0, 0.25),
+    0 0 0 1px rgba(255, 255, 255, 0.04) !important;
 }
 
-/* Shared glass mixin targets */
+/* rounded-xl/2xl only when they look like cards (have border or padding) */
+html[data-satka-theme='liquid-glass'] #root main [class*='rounded-2xl'],
+html[data-satka-theme='liquid-glass'] #root main [class*='rounded-xl'],
+html[data-satka-theme='liquid-glass'] #root [role='main'] [class*='rounded-2xl'],
+html[data-satka-theme='liquid-glass'] #root [role='main'] [class*='rounded-xl'] {
+  background: rgba(255, 255, 255, 0.1) !important;
+  backdrop-filter: blur(24px) saturate(1.7) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(1.7) !important;
+  border: 1px solid rgba(255, 255, 255, 0.2) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.3),
+    0 12px 40px rgba(0, 0, 0, 0.2) !important;
+}
+
+/* Shine ONLY on tagged glass panels — never on header/nav/buttons */
+html[data-satka-theme='liquid-glass'] .satka-lg-glass.satka-lg-shine::after,
+html[data-satka-theme='liquid-glass'] #root .bento-card::after {
+  content: '';
+  position: absolute;
+  top: -60%;
+  left: -80%;
+  width: 50%;
+  height: 220%;
+  background: linear-gradient(
+    105deg,
+    transparent 38%,
+    rgba(255, 255, 255, 0.08) 46%,
+    rgba(255, 255, 255, 0.35) 50%,
+    rgba(255, 255, 255, 0.08) 54%,
+    transparent 62%
+  );
+  transform: rotate(14deg);
+  animation: satka-lg-shine 5s ease-in-out infinite;
+  pointer-events: none;
+  z-index: 0;
+}
+
+@keyframes satka-lg-shine {
+  0%, 65% { transform: translateX(-100%) rotate(14deg); opacity: 0; }
+  72% { opacity: 1; }
+  100% { transform: translateX(280%) rotate(14deg); opacity: 0; }
+}
+
+/* Header & nav — frosted chrome */
 html[data-satka-theme='liquid-glass'] #root header,
+html[data-satka-theme='liquid-glass'] #root [class*='Header'],
 html[data-satka-theme='liquid-glass'] #root nav,
 html[data-satka-theme='liquid-glass'] #root [class*='BottomNav'],
 html[data-satka-theme='liquid-glass'] #root [class*='bottom-nav'],
 html[data-satka-theme='liquid-glass'] #root footer[class*='nav'],
 html[data-satka-theme='liquid-glass'] #root [class*='fixed'][class*='bottom-0'] {
-  background: var(--satka-header-bg) !important;
-  backdrop-filter: blur(var(--satka-glass-blur)) saturate(var(--satka-glass-saturate)) !important;
-  -webkit-backdrop-filter: blur(var(--satka-glass-blur)) saturate(var(--satka-glass-saturate)) !important;
-  border-color: rgba(255, 255, 255, 0.14) !important;
+  background: rgba(255, 255, 255, 0.08) !important;
+  backdrop-filter: blur(32px) saturate(1.85) !important;
+  -webkit-backdrop-filter: blur(32px) saturate(1.85) !important;
+  border-color: rgba(255, 255, 255, 0.2) !important;
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.12),
-    0 8px 32px rgba(0, 0, 0, 0.28) !important;
+    inset 0 1px 0 rgba(255, 255, 255, 0.28),
+    0 4px 24px rgba(0, 0, 0, 0.2) !important;
 }
 
-/* Cards & panels */
-html[data-satka-theme='liquid-glass'] #root .bento-card,
-html[data-satka-theme='liquid-glass'] #root [class*='rounded-linear'],
-html[data-satka-theme='liquid-glass'] #root [class*='rounded-2xl'],
-html[data-satka-theme='liquid-glass'] #root [class*='rounded-xl'],
-html[data-satka-theme='liquid-glass'] #root [class*='bg-dark-950'],
-html[data-satka-theme='liquid-glass'] #root [class*='bg-dark-900'],
-html[data-satka-theme='liquid-glass'] #root [class*='bg-dark-800'],
-html[data-satka-theme='liquid-glass'] #root [class*='bg-dark-700'] {
+/* Theme switcher always clickable */
+html[data-satka-theme='liquid-glass'] .satka-theme-switcher,
+html[data-satka-theme='liquid-glass'] .satka-theme-switcher * {
   position: relative;
-  background: var(--satka-card-bg) !important;
-  backdrop-filter: blur(18px) saturate(1.5) !important;
-  -webkit-backdrop-filter: blur(18px) saturate(1.5) !important;
-  border: 1px solid rgba(255, 255, 255, 0.14) !important;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.14),
-    inset 0 -1px 0 rgba(255, 255, 255, 0.04),
-    0 12px 40px rgba(0, 0, 0, 0.22) !important;
-  overflow: hidden;
+  z-index: 90;
+  pointer-events: auto;
 }
 
-html:not(.satka-low-perf)[data-satka-theme='liquid-glass'] #root .bento-card::before,
-html:not(.satka-low-perf)[data-satka-theme='liquid-glass'] #root [class*='rounded-2xl']::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  padding: 1px;
-  background: var(--satka-glass-rim);
-  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
-  -webkit-mask-composite: xor;
-  mask-composite: exclude;
-  pointer-events: none;
-  opacity: 0.55;
+html[data-satka-theme='liquid-glass'] .satka-theme-switcher > button,
+html[data-satka-theme='liquid-glass'] .satka-theme-switcher .satka-theme-menu {
+  background: rgba(255, 255, 255, 0.12) !important;
+  backdrop-filter: blur(24px) saturate(1.7) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(1.7) !important;
+  border: 1px solid rgba(255, 255, 255, 0.22) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25), 0 12px 40px rgba(0, 0, 0, 0.3) !important;
 }
 
-html:not(.satka-low-perf)[data-satka-theme='liquid-glass'] #root .bento-card::after,
-html:not(.satka-low-perf)[data-satka-theme='liquid-glass'] #root [class*='rounded-2xl']::after {
-  content: '';
-  position: absolute;
-  top: -50%;
-  left: -60%;
-  width: 45%;
-  height: 200%;
-  background: linear-gradient(
-    105deg,
-    transparent 40%,
-    rgba(255, 255, 255, 0.12) 48%,
-    rgba(255, 255, 255, 0.22) 50%,
-    rgba(255, 255, 255, 0.1) 52%,
-    transparent 60%
-  );
-  transform: rotate(12deg);
-  animation: satka-lg-shine 7s ease-in-out infinite;
-  pointer-events: none;
-}
-
-@keyframes satka-lg-shine {
-  0%, 72% { transform: translateX(-120%) rotate(12deg); opacity: 0; }
-  78% { opacity: 1; }
-  100% { transform: translateX(320%) rotate(12deg); opacity: 0; }
+html[data-satka-theme='liquid-glass'] .satka-theme-switcher .satka-theme-menu {
+  z-index: 100;
 }
 
 /* Inputs */
 html[data-satka-theme='liquid-glass'] #root input,
 html[data-satka-theme='liquid-glass'] #root textarea,
 html[data-satka-theme='liquid-glass'] #root select {
-  background: var(--satka-input-bg) !important;
-  backdrop-filter: blur(12px) saturate(1.3) !important;
-  -webkit-backdrop-filter: blur(12px) saturate(1.3) !important;
-  border: 1px solid rgba(255, 255, 255, 0.14) !important;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08) !important;
+  background: rgba(255, 255, 255, 0.08) !important;
+  backdrop-filter: blur(16px) saturate(1.5) !important;
+  -webkit-backdrop-filter: blur(16px) saturate(1.5) !important;
+  border: 1px solid rgba(255, 255, 255, 0.2) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12) !important;
 }
 
 html[data-satka-theme='liquid-glass'] #root input:focus,
 html[data-satka-theme='liquid-glass'] #root textarea:focus,
 html[data-satka-theme='liquid-glass'] #root select:focus {
-  border-color: rgba(184, 212, 255, 0.45) !important;
+  border-color: rgba(200, 220, 255, 0.55) !important;
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.12),
-    0 0 0 3px rgba(120, 170, 255, 0.15) !important;
+    inset 0 1px 0 rgba(255, 255, 255, 0.2),
+    0 0 0 3px rgba(120, 170, 255, 0.2) !important;
 }
 
 /* Buttons */
@@ -217,85 +255,64 @@ html[data-satka-theme='liquid-glass'] #root button[class*='border-dark-'],
 html[data-satka-theme='liquid-glass'] #root a[class*='border-dark-'],
 html[data-satka-theme='liquid-glass'] #root button[class*='ghost'],
 html[data-satka-theme='liquid-glass'] #root a[class*='outline'] {
-  background: rgba(255, 255, 255, 0.07) !important;
-  backdrop-filter: blur(14px) saturate(1.4) !important;
-  -webkit-backdrop-filter: blur(14px) saturate(1.4) !important;
-  border: 1px solid rgba(255, 255, 255, 0.16) !important;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1) !important;
+  background: rgba(255, 255, 255, 0.1) !important;
+  backdrop-filter: blur(16px) saturate(1.5) !important;
+  -webkit-backdrop-filter: blur(16px) saturate(1.5) !important;
+  border: 1px solid rgba(255, 255, 255, 0.22) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18) !important;
 }
 
 html[data-satka-theme='liquid-glass'] #root button[class*='bg-primary'],
 html[data-satka-theme='liquid-glass'] #root a[class*='bg-primary'],
 html[data-satka-theme='liquid-glass'] #root form button[type='submit'] {
-  background: linear-gradient(135deg, rgba(200, 220, 255, 0.95) 0%, rgba(140, 180, 255, 0.88) 100%) !important;
+  background: linear-gradient(135deg, rgba(220, 235, 255, 0.95) 0%, rgba(160, 200, 255, 0.9) 50%, rgba(180, 160, 255, 0.85) 100%) !important;
   color: #0a1020 !important;
-  border: 1px solid rgba(255, 255, 255, 0.35) !important;
+  border: 1px solid rgba(255, 255, 255, 0.45) !important;
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.5),
-    0 8px 24px rgba(80, 140, 255, 0.25) !important;
+    inset 0 1px 0 rgba(255, 255, 255, 0.6),
+    0 8px 28px rgba(100, 150, 255, 0.35) !important;
 }
 
-/* Theme switcher menu */
-html[data-satka-theme='liquid-glass'] .satka-theme-switcher .satka-theme-menu {
-  background: rgba(14, 20, 36, 0.72) !important;
-  backdrop-filter: blur(24px) saturate(1.7) !important;
-  -webkit-backdrop-filter: blur(24px) saturate(1.7) !important;
-  border: 1px solid rgba(255, 255, 255, 0.16) !important;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.12),
-    0 20px 50px rgba(0, 0, 0, 0.35) !important;
-}
-
-/* Satka overlays */
+/* Overlays */
 html[data-satka-theme='liquid-glass'] .satka-cabinet-wheel-block,
 html[data-satka-theme='liquid-glass'] .satka-admin-email-overlay .satka-admin-email-panel,
 html[data-satka-theme='liquid-glass'] .satka-support-panel {
-  background: rgba(255, 255, 255, 0.07) !important;
-  backdrop-filter: blur(20px) saturate(1.55) !important;
-  -webkit-backdrop-filter: blur(20px) saturate(1.55) !important;
-  border: 1px solid rgba(255, 255, 255, 0.16) !important;
+  background: rgba(255, 255, 255, 0.1) !important;
+  backdrop-filter: blur(28px) saturate(1.75) !important;
+  -webkit-backdrop-filter: blur(28px) saturate(1.75) !important;
+  border: 1px solid rgba(255, 255, 255, 0.24) !important;
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.14),
-    0 16px 48px rgba(0, 0, 0, 0.3) !important;
-}
-
-html[data-satka-theme='liquid-glass'] .satka-quick-link {
-  background: rgba(255, 255, 255, 0.08);
-  backdrop-filter: blur(16px) saturate(1.4);
-  -webkit-backdrop-filter: blur(16px) saturate(1.4);
-  border-color: rgba(255, 255, 255, 0.16);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12);
-}
-
-html[data-satka-theme='liquid-glass'] .satka-quick-link.accent {
-  background: linear-gradient(135deg, rgba(210, 225, 255, 0.92), rgba(150, 190, 255, 0.85));
-  color: #0a1020;
-  border-color: rgba(255, 255, 255, 0.35);
+    inset 0 1px 0 rgba(255, 255, 255, 0.3),
+    0 20px 60px rgba(0, 0, 0, 0.35) !important;
 }
 
 html[data-satka-theme='liquid-glass'] .satka-hero h2 {
-  background: linear-gradient(120deg, #ffffff 0%, #b8d4ff 45%, #e8eeff 70%, #ffffff 100%) !important;
+  background: linear-gradient(120deg, #fff 0%, #b8d4ff 40%, #e0c8ff 60%, #a8ffe8 80%, #fff 100%) !important;
   background-size: 200% auto !important;
   -webkit-background-clip: text !important;
   background-clip: text !important;
   -webkit-text-fill-color: transparent !important;
-  animation: satka-lg-text 8s ease-in-out infinite alternate;
+  animation: satka-lg-text 6s ease-in-out infinite alternate;
 }
 
 @keyframes satka-lg-text {
   to { background-position: 100% center; }
 }
 
-/* Mobile: lighter blur for performance */
+/* Mobile: still glass, slightly lighter blur */
 html.satka-mobile[data-satka-theme='liquid-glass'] #root .bento-card,
-html.satka-mobile[data-satka-theme='liquid-glass'] #root [class*='rounded-2xl'] {
-  backdrop-filter: blur(14px) saturate(1.35) !important;
-  -webkit-backdrop-filter: blur(14px) saturate(1.35) !important;
+html.satka-mobile[data-satka-theme='liquid-glass'] #root [class*='bg-dark-'] {
+  backdrop-filter: blur(20px) saturate(1.6) !important;
+  -webkit-backdrop-filter: blur(20px) saturate(1.6) !important;
 }
 
-html.satka-low-perf[data-satka-theme='liquid-glass'] #root .bento-card::before,
-html.satka-low-perf[data-satka-theme='liquid-glass'] #root .bento-card::after,
-html.satka-low-perf[data-satka-theme='liquid-glass'] #root [class*='rounded-2xl']::before,
-html.satka-low-perf[data-satka-theme='liquid-glass'] #root [class*='rounded-2xl']::after {
-  display: none;
+/* App shell wrappers — must stay transparent (after card glass rules) */
+html[data-satka-theme='liquid-glass'] #root [class*='min-h-viewport'],
+html[data-satka-theme='liquid-glass'] #root [class*='min-h-dvh'] {
+  background: transparent !important;
+  background-color: transparent !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  box-shadow: none !important;
+  border-color: transparent !important;
 }

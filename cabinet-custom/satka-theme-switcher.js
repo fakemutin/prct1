@@ -25,6 +25,8 @@
   var isTelegram =
     document.documentElement.classList.contains('satka-in-telegram') ||
     !!window.TelegramWebviewProxy;
+  var menuCloseBound = false;
+  var activeMenu = null;
 
   function t(key) {
     return window.SatkaI18n ? window.SatkaI18n.t(key) : key;
@@ -32,10 +34,10 @@
 
   function getTheme() {
     try {
-      return localStorage.getItem(STORAGE_KEY) || 'dark';
-    } catch (e) {
-      return 'dark';
-    }
+      var saved = localStorage.getItem(STORAGE_KEY);
+      if (saved && THEMES.some(function (x) { return x.id === saved; })) return saved;
+    } catch (e) {}
+    return 'dark';
   }
 
   function syncTelegramChrome(theme) {
@@ -49,11 +51,7 @@
   }
 
   function applyTheme(id, silent) {
-    var theme = THEMES.some(function (x) {
-      return x.id === id;
-    })
-      ? id
-      : 'dark';
+    var theme = THEMES.some(function (x) { return x.id === id; }) ? id : 'dark';
     var html = document.documentElement;
     html.setAttribute('data-satka-theme', theme);
     html.classList.toggle('dark', theme !== 'light');
@@ -74,9 +72,7 @@
 
     if (!silent) {
       try {
-        window.dispatchEvent(
-          new CustomEvent('themeChanged', { detail: theme === 'light' ? 'light' : 'dark' }),
-        );
+        window.dispatchEvent(new CustomEvent('themeChanged', { detail: theme }));
       } catch (e2) {}
     }
 
@@ -85,6 +81,16 @@
     });
     var current = document.querySelector('.satka-theme-switcher [data-current-theme]');
     if (current) current.textContent = t('theme.' + theme);
+  }
+
+  function bindMenuClose() {
+    if (menuCloseBound) return;
+    menuCloseBound = true;
+    document.addEventListener('mousedown', function (e) {
+      if (!activeMenu || activeMenu.hidden) return;
+      var wrap = activeMenu.closest('.satka-theme-switcher');
+      if (wrap && !wrap.contains(e.target)) activeMenu.hidden = true;
+    });
   }
 
   function buildSwitcher() {
@@ -100,6 +106,9 @@
       '</span></button>' +
       '<div class="satka-theme-menu" hidden></div>';
     var menu = wrap.querySelector('.satka-theme-menu');
+    activeMenu = menu;
+    bindMenuClose();
+
     THEMES.forEach(function (item) {
       var btn = document.createElement('button');
       btn.type = 'button';
@@ -111,23 +120,22 @@
       btn.innerHTML =
         '<span class="satka-theme-swatch" style="' +
         swatchStyle +
-        '"></span>' +
-        '<span>' +
+        '"></span><span>' +
         t('theme.' + item.id) +
         '</span>';
-      btn.addEventListener('click', function () {
+      btn.addEventListener('click', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
         applyTheme(item.id);
         menu.hidden = true;
       });
       menu.appendChild(btn);
     });
-    var toggle = wrap.querySelector('button');
-    toggle.addEventListener('click', function (e) {
+
+    wrap.querySelector('button').addEventListener('click', function (e) {
+      e.preventDefault();
       e.stopPropagation();
       menu.hidden = !menu.hidden;
-    });
-    document.addEventListener('mousedown', function (e) {
-      if (!wrap.contains(e.target)) menu.hidden = true;
     });
     return wrap;
   }
@@ -139,7 +147,10 @@
 
     var parent = langBtn.parentElement;
     var existing = parent.querySelector('.satka-theme-switcher');
-    if (existing && parent.contains(existing)) return;
+    if (existing && document.body.contains(existing)) {
+      applyTheme(getTheme(), true);
+      return;
+    }
 
     document.querySelectorAll('.satka-theme-switcher').forEach(function (el) {
       el.remove();
@@ -151,20 +162,28 @@
   }
 
   function remountForLanguage() {
-    var sw = document.querySelector('.satka-theme-switcher');
-    if (sw) sw.remove();
+    document.querySelectorAll('.satka-theme-switcher').forEach(function (el) {
+      el.remove();
+    });
     mountSwitcher();
   }
 
+  function enforceTheme() {
+    var saved = getTheme();
+    if (document.documentElement.getAttribute('data-satka-theme') !== saved) {
+      applyTheme(saved, true);
+    }
+  }
+
   function boot() {
-    applyTheme(getTheme(), true);
+    enforceTheme();
     mountSwitcher();
   }
 
   applyTheme(getTheme(), true);
 
   document.addEventListener('visibilitychange', function () {
-    if (!document.hidden) applyTheme(getTheme(), true);
+    if (!document.hidden) boot();
   });
 
   if (window.SatkaI18n) {
@@ -184,11 +203,11 @@
     }, 350);
   }
 
+  setInterval(enforceTheme, 1500);
+
   window.SatkaTheme = {
     apply: applyTheme,
     get: getTheme,
-    enforce: function () {
-      applyTheme(getTheme(), true);
-    },
+    enforce: enforceTheme,
   };
 })();

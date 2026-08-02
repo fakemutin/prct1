@@ -7,6 +7,8 @@ services:
       - ./cabinet-custom/index.html:/usr/share/nginx/html/index.html:ro
       - ./cabinet-custom/satka-theme.css:/usr/share/nginx/html/satka-theme.css:ro
       - ./cabinet-custom/satka-theme-presets.css:/usr/share/nginx/html/satka-theme-presets.css:ro
+      - ./cabinet-custom/satka-theme-liquid-glass.css:/usr/share/nginx/html/satka-theme-liquid-glass.css:ro
+      - ./cabinet-custom/satka-theme-liquid-glass.js:/usr/share/nginx/html/satka-theme-liquid-glass.js:ro
       - ./cabinet-custom/satka-i18n.js:/usr/share/nginx/html/satka-i18n.js:ro
       - ./cabinet-custom/satka-theme-switcher.js:/usr/share/nginx/html/satka-theme-switcher.js:ro
       - ./cabinet-custom/satka-enhance.js:/usr/share/nginx/html/satka-enhance.js:ro

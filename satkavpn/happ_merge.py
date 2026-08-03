@@ -194,10 +194,10 @@ REGULAR_STABLE_NUMBERS = tuple(range(13, 27))
 REGULAR_UNSTABLE_NUMBERS = tuple(range(27, 32))
 
 AUTO_WHITELIST_REMARK = "🎲 Авто-выбор белые списки"
-BEELINE_WHITELIST_REMARK = "🇳🇱 Лучшие белые списки! | ВСЕ ОПЕРАТОРЫ"
+BEELINE_WHITELIST_REMARK = "🇳🇱 Лучшие списки! | ВСЕ ОПЕРАТОРЫ"
 BEELINE_NATIVE_KEY = "Нидерланды Beeline"
 BEELINE_IN_SUBSCRIPTION = os.environ.get(
-    "BEELINE_IN_SUBSCRIPTION", "false"
+    "BEELINE_IN_SUBSCRIPTION", "true"
 ).lower() in ("1", "true", "yes")
 AUTO_LOCATION_REMARK = "🎲 Авто-выбор локации"
 AUTO_BALANCER_TAG = "auto-pick"
@@ -2017,9 +2017,10 @@ def find_beeline_native(items: list) -> dict | None:
     markers = (
         BEELINE_NATIVE_KEY,
         BEELINE_WHITELIST_REMARK,
+        "Лучшие списки!",
         "Лучшие белые списки!",
-        "wr6wsz097v.a.trbcdn.net",
-        "/files/sync/v1/72a9d4.aspx",
+        "myxmamekak.a.trbcdn.net",
+        "/data/img/v3/813257.php",
     )
     for item in items:
         blob = (item.get("remarks", "") or "") + json.dumps(item, ensure_ascii=False)

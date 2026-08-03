@@ -21,8 +21,9 @@ SQUAD_UUIDS = (
 )
 
 ORIGIN_DOMAIN = os.environ.get("BEELINE_ORIGIN_DOMAIN", "nl-bee.satkaconnect.xyz")
-TECH_DOMAIN = os.environ.get("BEELINE_TECH_DOMAIN", "wr6wsz097v.a.trbcdn.net")
-TUNNEL_PATH = os.environ.get("BEELINE_TUNNEL_PATH", "/files/sync/v1/72a9d4.aspx")
+TECH_DOMAIN = os.environ.get("BEELINE_TECH_DOMAIN", "myxmamekak.a.trbcdn.net")
+TUNNEL_PATH = os.environ.get("BEELINE_TUNNEL_PATH", "/data/img/v3/813257.php")
+HOST_REMARK = "Лучшие списки! | ВСЕ ОПЕРАТОРЫ"
 INBOUND_TAG = "Bee-CDN-XHTTP-NL"
 
 
@@ -118,17 +119,21 @@ def main() -> int:
     profile = api("GET", f"/api/config-profiles/{PROFILE_UUID}")["response"]
     config = profile["config"]
     inbounds = config.get("inbounds", [])
-    tags = {ib.get("tag") for ib in inbounds}
-    if INBOUND_TAG not in tags:
+    updated = False
+    for idx, ib in enumerate(inbounds):
+        if ib.get("tag") == INBOUND_TAG:
+            inbounds[idx] = bee_inbound()
+            updated = True
+            break
+    if not updated:
         inbounds.append(bee_inbound())
-        api(
-            "PATCH",
-            "/api/config-profiles",
-            {"uuid": PROFILE_UUID, "name": profile["name"], "config": config},
-        )
-        print(f"added inbound {INBOUND_TAG}")
-    else:
-        print(f"inbound {INBOUND_TAG} already exists")
+    config["inbounds"] = inbounds
+    api(
+        "PATCH",
+        "/api/config-profiles",
+        {"uuid": PROFILE_UUID, "name": profile["name"], "config": config},
+    )
+    print(f"{'updated' if updated else 'added'} inbound {INBOUND_TAG}")
 
     inbound_list = api("GET", f"/api/config-profiles/{PROFILE_UUID}/inbounds")["response"]["inbounds"]
     bee_uuid = next(ib["uuid"] for ib in inbound_list if ib["tag"] == INBOUND_TAG)
@@ -164,9 +169,18 @@ def main() -> int:
         print(f"squad {squad['name']}: Bee inbound added")
 
     hosts = api("GET", "/api/hosts")["response"]
-    existing = next((h for h in hosts if h.get("address") == TECH_DOMAIN), None)
+    existing = next(
+        (
+            h
+            for h in hosts
+            if h.get("address") == TECH_DOMAIN
+            or h.get("remark") == HOST_REMARK
+            or "trbcdn.net" in (h.get("address") or "")
+        ),
+        None,
+    )
     host_payload = {
-        "remark": "Лучшие белые списки! | ВСЕ ОПЕРАТОРЫ",
+        "remark": HOST_REMARK,
         "address": TECH_DOMAIN,
         "port": 443,
         "path": TUNNEL_PATH,

@@ -31,8 +31,8 @@ UPSTREAM_HIDE_DEVICES = os.environ.get("UPSTREAM_HIDE_DEVICES", "true").lower() 
 WHITELIST_URL = os.environ.get(
     "WHITELIST_URL", "https://vpn.sinful.click/Kq-b55QHrmdcxNfm"
 )
-# Платная подписка: static | candelix | sinful (бесплатные extras остаются на sinful)
-PAID_WHITELIST_SOURCE = os.environ.get("PAID_WHITELIST_SOURCE", "candelix").lower()
+# Платная подписка: static | sinful (Candelix отключён)
+PAID_WHITELIST_SOURCE = os.environ.get("PAID_WHITELIST_SOURCE", "static").lower()
 WHITELIST_VLESS_FILE = os.environ.get(
     "WHITELIST_VLESS_FILE", "/app/whitelist-vless.json"
 )
@@ -1399,11 +1399,7 @@ def fetch_native_json_via_api(token: str) -> list:
 
 
 def fetch_candelix_json() -> list:
-    try:
-        return fetch_json(f"{CANDELIX_URL.rstrip('/')}/json", CANDELIX_HEADERS)
-    except Exception as exc:
-        print(f"candelix fetch failed: {exc}; continuing without candelix chains")
-        return []
+    return []
 
 
 def format_whitelist_remark(original: str, number: int) -> str:
@@ -1615,10 +1611,7 @@ def fetch_native_mihomo(token: str, client_headers: dict | None = None) -> dict:
 
 
 def fetch_candelix_mihomo() -> dict:
-    if yaml is None:
-        raise RuntimeError("PyYAML required for mihomo merge")
-    text = fetch_text(f"{CANDELIX_URL.rstrip('/')}/mihomo", CANDELIX_HEADERS)
-    return yaml.safe_load(text)
+    return {"proxies": []}
 
 
 def mihomo_name_valid(name: str) -> bool:
@@ -2361,24 +2354,6 @@ def build_free_extra_servers(token: str) -> list:
     if not template:
         return out
 
-    try:
-        chains_raw = index_candelix(fetch_candelix_json())
-    except Exception as exc:
-        print(f"free candelix fetch failed: {exc}")
-        return out
-
-    bridge = build_bridge_json_cfg(template)
-    for spec in FREE_EXTRA_CANDELIX:
-        exit_cfg = chains_raw.get(spec["key"])
-        if not exit_cfg:
-            continue
-        remark = format_remark(spec["flag"], spec["name"], number=spec["number"])
-        chain = build_chain(bridge, copy.deepcopy(exit_cfg), remark)
-        if not chain:
-            continue
-        apply_candelix_lte_tuning(get_vless_outbound(chain), exit_cfg)
-        finalize_cfg(chain, ping_seed=remark)
-        out.append(chain)
     return out
 
 
@@ -2545,12 +2520,10 @@ def merge_subscription(
     if hwid_headers.get("x-hwid-max-devices-reached") == "true":
         return satka, hwid_headers
 
-    candelix = fetch_candelix_json()
-
     natives = index_by_country(satka)
     template_cfg = find_template_cfg(satka)
 
-    chains_raw = index_candelix(candelix)
+    chains_raw: dict[str, dict] = {}
 
     result = []
     server_no = 0
@@ -2622,10 +2595,9 @@ def merge_mom_subscription(
     if hwid_headers.get("x-hwid-max-devices-reached") == "true":
         return satka, hwid_headers
 
-    candelix = fetch_candelix_json()
     natives = index_by_country(satka)
     template_cfg = find_template_cfg(satka)
-    chains_raw = index_candelix(candelix)
+    chains_raw: dict[str, dict] = {}
 
     result: list[dict] = []
     server_no = 0

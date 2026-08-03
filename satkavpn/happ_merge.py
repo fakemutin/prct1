@@ -508,25 +508,18 @@ def optimize_performance(cfg: dict) -> None:
         sock.setdefault("domainStrategy", "UseIPv4")
 
 
-def apply_beeline_outbound_tuning(ob: dict) -> None:
-    """Только Beeline CDN: ALPN h2 + AsIs (панель уже отдаёт security: tls)."""
+def normalize_beeline_outbound(ob: dict) -> None:
+    """Beeline CDN xhttp: TLS на клиенте ломает Happ (handshake error), CDN принимает без stream TLS."""
     ss = ob.setdefault("streamSettings", {})
     if ss.get("network") != "xhttp":
         return
-    ts = ss.setdefault("tlsSettings", {})
-    vnext = ob.get("settings", {}).get("vnext", [{}])
-    host = (vnext[0].get("address", "") if vnext else "") or ss.get(
-        "xhttpSettings", {}
-    ).get("host", "")
-    if host and not ts.get("serverName"):
-        ts["serverName"] = host
-    if not ts.get("alpn"):
-        ts["alpn"] = ["h2", "http/1.1"]
-    ts.setdefault("fingerprint", "firefox")
+    ss["security"] = "none"
+    ss.pop("tlsSettings", None)
+    ss.pop("realitySettings", None)
     sock = ss.setdefault("sockopt", {})
     sock.setdefault("tcpFastOpen", True)
     sock.setdefault("tcpNoDelay", True)
-    sock["domainStrategy"] = "AsIs"
+    sock.setdefault("domainStrategy", "UseIPv4")
 
 
 def finalize_cfg(cfg: dict, *, ping_seed: str | None = None) -> None:
@@ -2005,7 +1998,7 @@ def prepare_beeline_whitelist_cfg(native_cfg: dict) -> dict:
     finalize_whitelist_cfg(cfg, ping_seed=BEELINE_WHITELIST_REMARK)
     ob = whitelist_primary_outbound(cfg) or get_vless_outbound(cfg)
     if ob:
-        apply_beeline_outbound_tuning(ob)
+        normalize_beeline_outbound(ob)
     meta = cfg.setdefault("meta", {})
     meta["serverDescription"] = (
         "CDN: wr6wsz097v.a.trbcdn.net · origin nl-bee — только для CDN, не для скана с LTE"

@@ -1,0 +1,9 @@
+services:
+  ping-health:
+    image: nginx:1.27-alpine
+    container_name: ping-health
+    restart: always
+    ports:
+      - "127.0.0.1:9180:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro

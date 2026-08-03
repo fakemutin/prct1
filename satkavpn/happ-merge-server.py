@@ -91,7 +91,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Disposition", f'attachment; filename="{self._filename}"')
         self.send_header("Cache-Control", "no-cache")
         self.send_header("profile-title", encode_happ_header_value(meta["title"]))
-        self.send_header("profile-update-interval", "12")
+        self.send_header("profile-update-interval", "1")
         self.send_header("announce", announce)
         self.send_header("support-url", "https://t.me/satkavpnsupport")
         self.send_header("profile-web-page-url", "https://t.me/satkavpn_bot")
@@ -100,7 +100,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("proxy-ping-mode", "keepalive")
         self.send_header("subscription-ping-onopen-enabled", "1")
         self.send_header("ping-result", "time")
-        self.send_header("subscription-always-hwid-enable", "1")
+        self.send_header("subscription-always-hwid-enable", "0")
         self.send_header("hide-settings", "1")
         if meta["routing"]:
             routing = os.environ.get("HAPP_ROUTING", "")
@@ -139,20 +139,6 @@ class Handler(BaseHTTPRequestHandler):
             token, self._client_hwid_headers(), user_agent
         )
         hwid_headers: dict[str, str] = {}
-
-        if (
-            plan is None
-            and fmt in ("json", "mihomo", "clash")
-            and is_happ_client(user_agent)
-            and "x-hwid" not in self._client_hwid_headers()
-        ):
-            self.send_response(404)
-            self.send_header("x-hwid-not-supported", "true")
-            self.send_header("subscription-always-hwid-enable", "1")
-            self.end_headers()
-            if send_body:
-                self.wfile.write(b"")
-            return
 
         try:
             if fmt in ("mihomo", "clash"):
@@ -213,7 +199,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_response(exc.status)
             for key, value in exc.headers.items():
                 self.send_header(key, value)
-            self.send_header("subscription-always-hwid-enable", "1")
+            self.send_header("subscription-always-hwid-enable", "0")
             self.end_headers()
             if send_body:
                 self.wfile.write(b"")

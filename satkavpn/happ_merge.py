@@ -1043,9 +1043,12 @@ def fetch_native_json(
         data, _status, resp_headers = fetch_json_with_response(
             f"{SUB_INTERNAL.rstrip('/')}/{token}/json", headers
         )
+        resp_hwid = pick_hwid_response_headers(resp_headers)
         if len(data) == 1 and "не поддерживается" in (data[0].get("remarks") or "").lower():
             raise RuntimeError("subscription page returned hwid placeholder")
-        return data, pick_hwid_response_headers(resp_headers)
+        if resp_hwid.get("x-hwid-max-devices-reached") == "true":
+            raise RuntimeError("subscription page reported max devices reached")
+        return data, resp_hwid
     except Exception as exc:
         print(f"internal json fetch failed for {token}: {exc}; using API fallback")
     try:
@@ -2517,9 +2520,6 @@ def merge_subscription(
     locations = list(load_locations())
     satka, hwid_headers = fetch_native_json(token, client_headers)
 
-    if hwid_headers.get("x-hwid-max-devices-reached") == "true":
-        return satka, hwid_headers
-
     natives = index_by_country(satka)
     template_cfg = find_template_cfg(satka)
 
@@ -2592,8 +2592,6 @@ def merge_mom_subscription(
 
     locations = list(load_locations())
     satka, hwid_headers = fetch_native_json(token, client_headers)
-    if hwid_headers.get("x-hwid-max-devices-reached") == "true":
-        return satka, hwid_headers
 
     natives = index_by_country(satka)
     template_cfg = find_template_cfg(satka)

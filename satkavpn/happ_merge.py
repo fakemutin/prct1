@@ -194,7 +194,7 @@ REGULAR_STABLE_NUMBERS = tuple(range(13, 27))
 REGULAR_UNSTABLE_NUMBERS = tuple(range(27, 32))
 
 AUTO_WHITELIST_REMARK = "🎲 Авто-выбор белые списки"
-BEELINE_WHITELIST_REMARK = "🌍 Лучшие белые списки! | ВСЕ ОПЕРАТОРЫ"
+BEELINE_WHITELIST_REMARK = "🇳🇱 Лучшие белые списки! | ВСЕ ОПЕРАТОРЫ"
 BEELINE_NATIVE_KEY = "Нидерланды Beeline"
 BEELINE_IN_SUBSCRIPTION = os.environ.get(
     "BEELINE_IN_SUBSCRIPTION", "true"
@@ -1982,18 +1982,18 @@ def index_natives(items: list) -> dict[str, dict]:
 
 
 def prepare_beeline_whitelist_cfg(native_cfg: dict) -> dict:
-    """Beeline CDN — те же правила что у остальных БС, без экспериментов с TLS/DNS."""
+    """Beeline CDN — нативный конфиг с панели как есть, без routing/dns от happ_merge."""
     cfg = copy.deepcopy(native_cfg)
     cfg["remarks"] = BEELINE_WHITELIST_REMARK
-    finalize_whitelist_cfg(cfg, ping_seed=BEELINE_WHITELIST_REMARK)
-    ob = whitelist_primary_outbound(cfg) or get_vless_outbound(cfg)
-    if ob:
-        ss = ob.setdefault("streamSettings", {})
-        if ss.get("network") == "xhttp":
-            ss["security"] = "none"
-            ss.pop("tlsSettings", None)
+    cfg.pop("routing", None)
+    cfg.pop("dns", None)
+    cfg.pop("inbounds", None)
+    for ob in cfg.get("outbounds", []):
+        if ob.get("protocol") == "vless":
+            ob["tag"] = "proxy"
+    apply_fake_ping_meta(cfg, BEELINE_WHITELIST_REMARK)
     meta = cfg.setdefault("meta", {})
-    meta["serverDescription"] = "Все операторы · LTE"
+    meta["serverDescription"] = "Нидерланды · все операторы"
     return cfg
 
 

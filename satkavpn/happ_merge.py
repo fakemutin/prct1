@@ -194,7 +194,7 @@ REGULAR_STABLE_NUMBERS = tuple(range(13, 27))
 REGULAR_UNSTABLE_NUMBERS = tuple(range(27, 32))
 
 AUTO_WHITELIST_REMARK = "🎲 Авто-выбор белые списки"
-BEELINE_WHITELIST_REMARK = "Лучшие белые списки! | ВСЕ ОПЕРАТОРЫ"
+BEELINE_WHITELIST_REMARK = "🇳🇱 Лучшие белые списки! | ВСЕ ОПЕРАТОРЫ"
 BEELINE_NATIVE_KEY = "Нидерланды Beeline"
 AUTO_LOCATION_REMARK = "🎲 Авто-выбор локации"
 AUTO_BALANCER_TAG = "auto-pick"
@@ -506,6 +506,60 @@ def optimize_performance(cfg: dict) -> None:
         sock.setdefault("tcpFastOpen", True)
         sock.setdefault("tcpNoDelay", True)
         sock.setdefault("domainStrategy", "UseIPv4")
+
+
+def normalize_beeline_outbound(ob: dict) -> None:
+    """Beeline CDN xhttp: без stream TLS; домены резолвятся на стороне прокси."""
+    ss = ob.setdefault("streamSettings", {})
+    if ss.get("network") != "xhttp":
+        return
+    ss["security"] = "none"
+    ss.pop("tlsSettings", None)
+    ss.pop("realitySettings", None)
+    sock = ss.setdefault("sockopt", {})
+    sock.setdefault("tcpFastOpen", True)
+    sock.setdefault("tcpNoDelay", True)
+    sock["domainStrategy"] = "AsIs"
+
+
+def rebuild_beeline_whitelist_routing(
+    cfg: dict,
+    *,
+    proxy_tag: str = "proxy",
+) -> None:
+    """Beeline xhttp: DNS и весь трафик через туннель (UDP:53 режется на глушилках)."""
+    ensure_direct_outbound(cfg)
+    cfg["routing"] = {
+        "domainStrategy": "AsIs",
+        "rules": [
+            {"type": "field", "ip": list(PRIVATE_CIDRS), "outboundTag": "direct"},
+            *_whitelist_direct_bypass_rules(),
+            {
+                "type": "field",
+                "network": "tcp,udp",
+                "port": "53",
+                "outboundTag": proxy_tag,
+            },
+            _whitelist_default_egress_rule(proxy_tag=proxy_tag),
+        ],
+    }
+
+
+def finalize_beeline_whitelist_cfg(
+    cfg: dict,
+    *,
+    ping_seed: str | None = None,
+) -> None:
+    sanitize_routing(cfg)
+    strip_whitelist_outbounds(cfg)
+    rebuild_beeline_whitelist_routing(cfg)
+    ensure_whitelist_sniffing(cfg)
+    ob = whitelist_primary_outbound(cfg) or get_vless_outbound(cfg)
+    if ob:
+        normalize_beeline_outbound(ob)
+    cfg.pop("dns", None)
+    if ping_seed:
+        apply_fake_ping_meta(cfg, ping_seed)
 
 
 def finalize_cfg(cfg: dict, *, ping_seed: str | None = None) -> None:
@@ -1960,6 +2014,7 @@ def find_beeline_native(items: list) -> dict | None:
     markers = (
         BEELINE_NATIVE_KEY,
         BEELINE_WHITELIST_REMARK,
+        "Лучшие белые списки!",
         "wr6wsz097v.a.trbcdn.net",
         "/files/sync/v1/72a9d4.aspx",
     )
@@ -1981,7 +2036,9 @@ def index_natives(items: list) -> dict[str, dict]:
 def prepare_beeline_whitelist_cfg(native_cfg: dict) -> dict:
     cfg = copy.deepcopy(native_cfg)
     cfg["remarks"] = BEELINE_WHITELIST_REMARK
-    finalize_whitelist_cfg(cfg, ping_seed=BEELINE_WHITELIST_REMARK)
+    finalize_beeline_whitelist_cfg(cfg, ping_seed=BEELINE_WHITELIST_REMARK)
+    meta = cfg.setdefault("meta", {})
+    meta["serverDescription"] = "Нидерланды · все операторы · LTE"
     return cfg
 
 
@@ -2448,6 +2505,8 @@ def append_whitelist_subset(
         )
         if balancer:
             result.append(balancer)
+
+    append_beeline_whitelist(result, natives)
 
     for number in numbers:
         if number in prepared:

@@ -194,6 +194,8 @@ REGULAR_STABLE_NUMBERS = tuple(range(13, 27))
 REGULAR_UNSTABLE_NUMBERS = tuple(range(27, 32))
 
 AUTO_WHITELIST_REMARK = "🎲 Авто-выбор белые списки"
+BEELINE_WHITELIST_REMARK = "Лучшие белые списки! | ВСЕ ОПЕРАТОРЫ"
+BEELINE_NATIVE_KEY = "Нидерланды Beeline"
 AUTO_LOCATION_REMARK = "🎲 Авто-выбор локации"
 AUTO_BALANCER_TAG = "auto-pick"
 SUBSCRIPTION_EXPIRED_REMARK = "Продлите подписку в боте @satkavpn_bot"
@@ -1947,6 +1949,35 @@ def index_by_country(items: list, key: str = "remarks") -> dict[str, dict]:
     return out
 
 
+def find_native_by_key(items: list, native_key: str, *, key: str = "remarks") -> dict | None:
+    for item in items:
+        if native_key in (item.get(key, "") or ""):
+            return item
+    return None
+
+
+def index_natives(items: list) -> dict[str, dict]:
+    out = index_by_country(items)
+    beeline = find_native_by_key(items, BEELINE_NATIVE_KEY)
+    if beeline:
+        out[BEELINE_NATIVE_KEY] = beeline
+    return out
+
+
+def prepare_beeline_whitelist_cfg(native_cfg: dict) -> dict:
+    cfg = copy.deepcopy(native_cfg)
+    cfg["remarks"] = BEELINE_WHITELIST_REMARK
+    finalize_whitelist_cfg(cfg, ping_seed=BEELINE_WHITELIST_REMARK)
+    return cfg
+
+
+def append_beeline_whitelist(result: list, natives: dict[str, dict]) -> None:
+    native = natives.get(BEELINE_NATIVE_KEY)
+    if not native:
+        return
+    result.append(prepare_beeline_whitelist_cfg(native))
+
+
 def prepare_native_lte_exit(cfg: dict, native_key: str) -> None:
     """Перенаправить exit на TCP-релей (тот же хаб, другой порт) для LTE."""
     relay_port = NATIVE_RELAY_PORTS.get(native_key)
@@ -2203,7 +2234,7 @@ def fetch_torrent_exit_natives(token: str = "") -> dict[str, dict] | None:
         return None
     try:
         satka, _ = fetch_native_json(bridge_token, None)
-        return index_by_country(satka)
+        return index_natives(satka)
     except Exception as exc:
         print(f"torrent exit natives fetch failed: {exc}")
         return None
@@ -2438,6 +2469,8 @@ def append_whitelist_paid(
         if balancer:
             result.append(balancer)
 
+    append_beeline_whitelist(result, natives)
+
     for number in WHITELIST_NUMBERS:
         if number in prepared:
             result.append(prepared[number])
@@ -2533,7 +2566,7 @@ def merge_subscription(
     satka, hwid_headers = fetch_native_json(token, client_headers)
     happ_mode = is_happ_request(client_headers)
 
-    natives = index_by_country(satka)
+    natives = index_natives(satka)
     template_cfg = find_template_cfg(satka)
 
     chains_raw: dict[str, dict] = {}
@@ -2609,7 +2642,7 @@ def merge_mom_subscription(
     satka, hwid_headers = fetch_native_json(token, client_headers)
     happ_mode = is_happ_request(client_headers)
 
-    natives = index_by_country(satka)
+    natives = index_natives(satka)
     template_cfg = find_template_cfg(satka)
     chains_raw: dict[str, dict] = {}
 
@@ -2682,7 +2715,13 @@ def merge_whitelist_subscription(token: str = "") -> list:
     if not is_subscription_active(token):
         return [build_expired_notice_cfg()]
 
-    natives = fetch_torrent_exit_natives(token)
+    natives = fetch_torrent_exit_natives(token) or {}
+    if token:
+        try:
+            satka, _ = fetch_native_json(token, None)
+            natives = {**natives, **index_natives(satka)}
+        except Exception as exc:
+            print(f"whitelist native merge failed: {exc}")
     items = fetch_paid_whitelist_json()
     use_candelix = paid_whitelist_from_candelix()
     prepared: dict[int, dict] = {}
@@ -2703,6 +2742,7 @@ def merge_whitelist_subscription(token: str = "") -> list:
         )
         if balancer:
             out.append(balancer)
+    append_beeline_whitelist(out, natives)
     for number in WHITELIST_NUMBERS:
         if number in prepared:
             out.append(prepared[number])

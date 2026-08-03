@@ -166,7 +166,7 @@ def main() -> int:
     hosts = api("GET", "/api/hosts")["response"]
     existing = next((h for h in hosts if h.get("address") == TECH_DOMAIN), None)
     host_payload = {
-        "remark": "Лучшие белые списки! | ВСЕ ОПЕРАТОРЫ",
+        "remark": "🌍 Лучшие белые списки! | ВСЕ ОПЕРАТОРЫ",
         "address": TECH_DOMAIN,
         "port": 443,
         "path": TUNNEL_PATH,

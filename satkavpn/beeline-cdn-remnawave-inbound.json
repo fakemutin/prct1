@@ -1,0 +1,40 @@
+{
+  "_comment": "Фрагмент для Config Profile в Remnawave. Замени __PORT__, __TECH__, __PATH__.",
+  "tag": "Bee-CDN-XHTTP",
+  "listen": "127.0.0.1",
+  "port": 7443,
+  "protocol": "vless",
+  "settings": {
+    "clients": [],
+    "decryption": "none"
+  },
+  "streamSettings": {
+    "network": "xhttp",
+    "security": "none",
+    "xhttpSettings": {
+      "host": "xxxxxxxxxx.a.trbcdn.net",
+      "path": "/assets/data/v6/track.php",
+      "mode": "packet-up",
+      "noSSEHeader": false,
+      "scMaxEachPostBytes": 1000000,
+      "scMaxBufferedPosts": 30,
+      "scStreamUpServerSecs": "20-80",
+      "xPaddingBytes": "100-1000",
+      "keepAlivePeriod": 45,
+      "headers": {
+        "X-Api-Key": "padding"
+      },
+      "xmux": {
+        "maxConcurrency": "1",
+        "maxConnections": 0,
+        "cMaxReuseTimes": "0",
+        "cMaxLifetimeMs": 0
+      }
+    }
+  },
+  "sniffing": {
+    "enabled": true,
+    "destOverride": ["http", "tls", "quic"],
+    "routeOnly": false
+  }
+}

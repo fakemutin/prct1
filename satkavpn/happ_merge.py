@@ -194,11 +194,8 @@ REGULAR_STABLE_NUMBERS = tuple(range(13, 27))
 REGULAR_UNSTABLE_NUMBERS = tuple(range(27, 32))
 
 AUTO_WHITELIST_REMARK = "🎲 Авто-выбор белые списки"
-BEELINE_WHITELIST_REMARK = "🇳🇱 Лучшие белые списки! | ВСЕ ОПЕРАТОРЫ"
+BEELINE_WHITELIST_REMARK = "Лучшие белые списки! | ВСЕ ОПЕРАТОРЫ"
 BEELINE_NATIVE_KEY = "Нидерланды Beeline"
-BEELINE_IN_SUBSCRIPTION = os.environ.get(
-    "BEELINE_IN_SUBSCRIPTION", "true"
-).lower() not in ("0", "false", "no")
 AUTO_LOCATION_REMARK = "🎲 Авто-выбор локации"
 AUTO_BALANCER_TAG = "auto-pick"
 SUBSCRIPTION_EXPIRED_REMARK = "Продлите подписку в боте @satkavpn_bot"
@@ -1982,47 +1979,17 @@ def index_natives(items: list) -> dict[str, dict]:
 
 
 def prepare_beeline_whitelist_cfg(native_cfg: dict) -> dict:
-    """Beeline CDN — нативный конфиг с панели как есть, без routing/dns от happ_merge."""
     cfg = copy.deepcopy(native_cfg)
     cfg["remarks"] = BEELINE_WHITELIST_REMARK
-    cfg.pop("routing", None)
-    cfg.pop("dns", None)
-    cfg.pop("inbounds", None)
-    for ob in cfg.get("outbounds", []):
-        if ob.get("protocol") == "vless":
-            ob["tag"] = "proxy"
-    apply_fake_ping_meta(cfg, BEELINE_WHITELIST_REMARK)
-    meta = cfg.setdefault("meta", {})
-    meta["serverDescription"] = "Нидерланды · все операторы"
+    finalize_whitelist_cfg(cfg, ping_seed=BEELINE_WHITELIST_REMARK)
     return cfg
 
 
 def append_beeline_whitelist(result: list, natives: dict[str, dict]) -> None:
-    """Beeline CDN — сразу перед «Белые списки | ТОП #1»."""
-    if not BEELINE_IN_SUBSCRIPTION:
-        return
     native = natives.get(BEELINE_NATIVE_KEY)
     if not native:
         return
     result.append(prepare_beeline_whitelist_cfg(native))
-
-
-def append_whitelist_auto_balancer(
-    result: list,
-    pool_cfgs: list[dict],
-    *,
-    natives: dict[str, dict] | None = None,
-) -> None:
-    if not pool_cfgs:
-        return
-    balancer = build_balancer_cfg(
-        pool_cfgs,
-        AUTO_WHITELIST_REMARK,
-        mode="whitelist",
-        natives=natives,
-    )
-    if balancer:
-        result.append(balancer)
 
 
 def prepare_native_lte_exit(cfg: dict, native_key: str) -> None:
@@ -2472,8 +2439,15 @@ def append_whitelist_subset(
             apply_fake_ping_meta(prepared[number], remark)
 
     pool_cfgs = [prepared[n] for n in auto_pool if n in prepared]
-    append_whitelist_auto_balancer(result, pool_cfgs, natives=natives)
-    append_beeline_whitelist(result, natives)
+    if pool_cfgs:
+        balancer = build_balancer_cfg(
+            pool_cfgs,
+            AUTO_WHITELIST_REMARK,
+            mode="whitelist",
+            natives=natives,
+        )
+        if balancer:
+            result.append(balancer)
 
     for number in numbers:
         if number in prepared:
@@ -2499,7 +2473,16 @@ def append_whitelist_paid(
         )
 
     pool_cfgs = [prepared[n] for n in WHITELIST_AUTO_POOL if n in prepared]
-    append_whitelist_auto_balancer(result, pool_cfgs, natives=natives)
+    if pool_cfgs:
+        balancer = build_balancer_cfg(
+            pool_cfgs,
+            AUTO_WHITELIST_REMARK,
+            mode="whitelist",
+            natives=natives,
+        )
+        if balancer:
+            result.append(balancer)
+
     append_beeline_whitelist(result, natives)
 
     for number in WHITELIST_NUMBERS:
@@ -2764,7 +2747,15 @@ def merge_whitelist_subscription(token: str = "") -> list:
 
     out: list[dict] = []
     pool_cfgs = [prepared[n] for n in WHITELIST_AUTO_POOL if n in prepared]
-    append_whitelist_auto_balancer(out, pool_cfgs, natives=natives)
+    if pool_cfgs:
+        balancer = build_balancer_cfg(
+            pool_cfgs,
+            AUTO_WHITELIST_REMARK,
+            mode="whitelist",
+            natives=natives,
+        )
+        if balancer:
+            out.append(balancer)
     append_beeline_whitelist(out, natives)
     for number in WHITELIST_NUMBERS:
         if number in prepared:

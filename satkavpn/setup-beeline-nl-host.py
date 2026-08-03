@@ -174,6 +174,7 @@ def main() -> int:
         "host": TECH_DOMAIN,
         "alpn": "h2",
         "fingerprint": "firefox",
+        "securityLayer": "TLS",
         "inbound": {
             "configProfileUuid": PROFILE_UUID,
             "configProfileInboundUuid": bee_uuid,

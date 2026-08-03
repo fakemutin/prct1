@@ -394,10 +394,11 @@ def rebuild_whitelist_routing(
     """Белые списки: IP-check и RU-приложения → direct, остальное → proxy."""
     ensure_direct_outbound(cfg)
     cfg["routing"] = {
-        "domainStrategy": "IPIfNonMatch",
+        "domainStrategy": "AsIs",
         "rules": [
             {"type": "field", "ip": list(PRIVATE_CIDRS), "outboundTag": "direct"},
             *_whitelist_direct_bypass_rules(),
+            {"type": "field", "network": "tcp", "port": "53", "outboundTag": proxy_tag},
             _whitelist_default_egress_rule(
                 proxy_tag=proxy_tag, balancer_tag=balancer_tag
             ),
@@ -495,6 +496,18 @@ def simplify_dns(cfg: dict) -> None:
     }
 
 
+def whitelist_dns(cfg: dict) -> None:
+    """DoH по TCP/443 — на глушилках UDP:53 до 1.1.1.1 часто режется, xhttp не несёт UDP."""
+    cfg["dns"] = {
+        "servers": [
+            "https://1.1.1.1/dns-query",
+            "https://dns.google/dns-query",
+        ],
+        "queryStrategy": "UseIPv4",
+        "disableFallback": True,
+    }
+
+
 def optimize_performance(cfg: dict) -> None:
     """Упростить конфиг Candelix: быстрее и стабильнее."""
     simplify_dns(cfg)
@@ -506,6 +519,40 @@ def optimize_performance(cfg: dict) -> None:
         sock.setdefault("tcpFastOpen", True)
         sock.setdefault("tcpNoDelay", True)
         sock.setdefault("domainStrategy", "UseIPv4")
+
+
+def optimize_whitelist_performance(cfg: dict) -> None:
+    """Белые списки: DNS через туннель (DoH), домены не резолвить локально."""
+    whitelist_dns(cfg)
+    for ob in cfg.get("outbounds", []):
+        if ob.get("protocol") != "vless":
+            continue
+        ss = ob.setdefault("streamSettings", {})
+        sock = ss.setdefault("sockopt", {})
+        sock.setdefault("tcpFastOpen", True)
+        sock.setdefault("tcpNoDelay", True)
+        sock["domainStrategy"] = "AsIs"
+
+
+def ensure_beeline_tls_settings(ob: dict) -> None:
+    """xhttp на :443 к Beeline CDN требует TLS (иначе туннель поднимается, сайты молчат)."""
+    ss = ob.setdefault("streamSettings", {})
+    if ss.get("network") != "xhttp":
+        return
+    vnext = ob.get("settings", {}).get("vnext", [{}])
+    port = int(vnext[0].get("port", 443) if vnext else 443)
+    if port != 443:
+        return
+    if ss.get("security") not in (None, "", "none"):
+        return
+    addr = vnext[0].get("address", "") if vnext else ""
+    sni = addr or ss.get("xhttpSettings", {}).get("host", "")
+    ss["security"] = "tls"
+    ts = ss.setdefault("tlsSettings", {})
+    ts.setdefault("serverName", sni)
+    ts.setdefault("alpn", ["h2", "http/1.1"])
+    ts.setdefault("fingerprint", "firefox")
+    ts.setdefault("allowInsecure", False)
 
 
 def finalize_cfg(cfg: dict, *, ping_seed: str | None = None) -> None:
@@ -1982,6 +2029,13 @@ def prepare_beeline_whitelist_cfg(native_cfg: dict) -> dict:
     cfg = copy.deepcopy(native_cfg)
     cfg["remarks"] = BEELINE_WHITELIST_REMARK
     finalize_whitelist_cfg(cfg, ping_seed=BEELINE_WHITELIST_REMARK)
+    ob = whitelist_primary_outbound(cfg) or get_vless_outbound(cfg)
+    if ob:
+        ensure_beeline_tls_settings(ob)
+    meta = cfg.setdefault("meta", {})
+    meta["serverDescription"] = (
+        "CDN: wr6wsz097v.a.trbcdn.net · origin nl-bee — только для CDN, не для скана с LTE"
+    )
     return cfg
 
 
@@ -2312,7 +2366,7 @@ def finalize_whitelist_cfg(
     strip_whitelist_outbounds(cfg)
     rebuild_whitelist_routing(cfg)
     ensure_whitelist_sniffing(cfg)
-    optimize_performance(cfg)
+    optimize_whitelist_performance(cfg)
     if ping_seed:
         apply_fake_ping_meta(cfg, ping_seed)
 

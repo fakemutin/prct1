@@ -98,7 +98,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("ping-type", PING_TYPE)
         self.send_header("check-url-via-proxy", PING_CHECK_URL)
         self.send_header("proxy-ping-mode", "keepalive")
-        self.send_header("subscription-ping-onopen-enabled", "1")
+        self.send_header("subscription-ping-onopen-enabled", "0")
         self.send_header("ping-result", "time")
         self.send_header("subscription-always-hwid-enable", "0")
         self.send_header("hide-settings", "1")

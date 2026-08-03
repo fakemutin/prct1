@@ -740,20 +740,27 @@ def format_separator_remarks(title: str) -> str:
     return (" " * left) + label + (" " * (pad_total - left))
 
 
+def is_happ_request(client_headers: dict | None) -> bool:
+    if not client_headers:
+        return False
+    ua = client_headers.get("User-Agent") or client_headers.get("user-agent") or ""
+    return is_happ_client(ua)
+
+
 def build_separator_cfg(title: str) -> dict:
-    """Заголовок-разделитель в списке Happ (не подключается)."""
+    """Заголовок-разделитель в списке Happ (не подключается, без TLS-пинга)."""
     return {
         "remarks": format_separator_remarks(title),
         "dns": {"servers": ["1.1.1.1"], "queryStrategy": "UseIPv4"},
         "routing": {
             "domainStrategy": "IPIfNonMatch",
-            "rules": [{"type": "field", "network": "tcp,udp", "outboundTag": "block"}],
+            "rules": [{"type": "field", "network": "tcp,udp", "outboundTag": "direct"}],
         },
         "inbounds": [],
         "outbounds": [
-            {"tag": "block", "protocol": "blackhole"},
+            {"tag": "direct", "protocol": "freedom"},
         ],
-        "meta": {"serverDescription": "список ниже"},
+        "meta": {"serverDescription": "список ниже", "ping": 1},
     }
 
 
@@ -2473,6 +2480,7 @@ def build_regular_location_cfg(
     template_cfg: dict,
     natives: dict[str, dict],
     chains_raw: dict[str, dict],
+    happ_mode: bool = False,
 ) -> dict | None:
     remark = format_location_remark(loc["flag"], loc["name"], number=number)
     source = loc_source(loc)
@@ -2483,6 +2491,10 @@ def build_regular_location_cfg(
         if key not in natives:
             return None
         cfg = copy.deepcopy(natives[key])
+        if loc.get("chain", False) and happ_mode:
+            cfg["remarks"] = remark
+            finalize_regular_cfg(cfg, ping_seed=remark)
+            return cfg
         if loc.get("chain", False):
             if loc.get("lte_relay", True):
                 prepare_native_lte_exit(cfg, key)
@@ -2519,6 +2531,7 @@ def merge_subscription(
 
     locations = list(load_locations())
     satka, hwid_headers = fetch_native_json(token, client_headers)
+    happ_mode = is_happ_request(client_headers)
 
     natives = index_by_country(satka)
     template_cfg = find_template_cfg(satka)
@@ -2544,6 +2557,7 @@ def merge_subscription(
             template_cfg=template_cfg,
             natives=natives,
             chains_raw=chains_raw,
+            happ_mode=happ_mode,
         )
         if cfg:
             prepared_regular[number] = cfg
@@ -2575,6 +2589,7 @@ def merge_subscription(
             template_cfg=template_cfg,
             natives=natives,
             chains_raw=chains_raw,
+            happ_mode=happ_mode,
         )
         if cfg:
             result.append(cfg)
@@ -2592,6 +2607,7 @@ def merge_mom_subscription(
 
     locations = list(load_locations())
     satka, hwid_headers = fetch_native_json(token, client_headers)
+    happ_mode = is_happ_request(client_headers)
 
     natives = index_by_country(satka)
     template_cfg = find_template_cfg(satka)
@@ -2624,6 +2640,7 @@ def merge_mom_subscription(
             template_cfg=template_cfg,
             natives=natives,
             chains_raw=chains_raw,
+            happ_mode=happ_mode,
         )
         if not cfg:
             continue

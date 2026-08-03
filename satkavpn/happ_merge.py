@@ -2034,11 +2034,19 @@ def index_natives(items: list) -> dict[str, dict]:
 
 
 def prepare_beeline_whitelist_cfg(native_cfg: dict) -> dict:
+    """Beeline CDN — нативный конфиг с панели как в гайде, без routing/dns от happ_merge."""
     cfg = copy.deepcopy(native_cfg)
     cfg["remarks"] = BEELINE_WHITELIST_REMARK
-    finalize_beeline_whitelist_cfg(cfg, ping_seed=BEELINE_WHITELIST_REMARK)
+    cfg.pop("routing", None)
+    cfg.pop("dns", None)
+    cfg.pop("inbounds", None)
+    for ob in cfg.get("outbounds", []):
+        if ob.get("protocol") == "vless":
+            ob["tag"] = "proxy"
+            normalize_beeline_outbound(ob)
+    apply_fake_ping_meta(cfg, BEELINE_WHITELIST_REMARK)
     meta = cfg.setdefault("meta", {})
-    meta["serverDescription"] = "Нидерланды · все операторы · LTE"
+    meta["serverDescription"] = "Нидерланды · Beeline CDN · все операторы"
     return cfg
 
 

@@ -47,6 +47,8 @@ if ! command -v caddy >/dev/null 2>&1; then
   apt-get install -y caddy >/dev/null
 fi
 
+TP="${TUNNEL_PATH:-}"
+if [ -z "$TP" ]; then
 W1=(assets static media data core files public cdn)
 W2=(data img cache track pixel feed api sync)
 V=(v1 v2 v3 v4 v6)
@@ -56,6 +58,7 @@ w2="${W2[$((RANDOM % 8))]}"
 ver="${V[$((RANDOM % 5))]}"
 ext="${X[$((RANDOM % 4))]}"
 TP="/${w1}/${w2}/${ver}/$(openssl rand -hex 3).${ext}"
+fi
 
 mkdir -p /var/www/html
 if [ ! -f /var/www/html/index.html ]; then

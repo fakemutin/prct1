@@ -1399,7 +1399,11 @@ def fetch_native_json_via_api(token: str) -> list:
 
 
 def fetch_candelix_json() -> list:
-    return fetch_json(f"{CANDELIX_URL.rstrip('/')}/json", CANDELIX_HEADERS)
+    try:
+        return fetch_json(f"{CANDELIX_URL.rstrip('/')}/json", CANDELIX_HEADERS)
+    except Exception as exc:
+        print(f"candelix fetch failed: {exc}; continuing without candelix chains")
+        return []
 
 
 def format_whitelist_remark(original: str, number: int) -> str:

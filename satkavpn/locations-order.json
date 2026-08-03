@@ -11,6 +11,7 @@
   {"flag": "🇸🇪", "name": "Швеция LTE", "source": "native", "native_key": "Швеция", "chain": true, "lte_relay": true, "number": 24, "tier": "top_lte"},
   {"flag": "🇩🇪", "name": "Германия LTE", "source": "native", "native_key": "Германия", "chain": true, "lte_relay": true, "number": 25, "tier": "top_lte"},
   {"flag": "🇳🇱", "name": "Нидерланды LTE", "source": "native", "native_key": "Нидерланды 2", "chain": true, "lte_relay": true, "number": 26, "tier": "top_lte"},
+  {"flag": "🇳🇱", "name": "Нидерланды Beeline", "source": "native", "native_key": "Нидерланды Beeline", "number": 21, "tier": "top_lte"},
   {"type": "separator", "name": "Нестабильные"},
   {"flag": "🇫🇮", "name": "Финляндия 2", "source": "native", "native_key": "Финляндия", "chain": true, "lte_relay": true, "number": 27, "tier": "wifi"},
   {"flag": "🇫🇮", "name": "Финляндия 3", "source": "native", "native_key": "Финляндия 2", "chain": true, "lte_relay": true, "number": 28, "tier": "wifi"},

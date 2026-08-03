@@ -196,6 +196,9 @@ REGULAR_UNSTABLE_NUMBERS = tuple(range(27, 32))
 AUTO_WHITELIST_REMARK = "🎲 Авто-выбор белые списки"
 BEELINE_WHITELIST_REMARK = "🇳🇱 Лучшие белые списки! | ВСЕ ОПЕРАТОРЫ"
 BEELINE_NATIVE_KEY = "Нидерланды Beeline"
+BEELINE_IN_SUBSCRIPTION = os.environ.get(
+    "BEELINE_IN_SUBSCRIPTION", "false"
+).lower() in ("1", "true", "yes")
 AUTO_LOCATION_REMARK = "🎲 Авто-выбор локации"
 AUTO_BALANCER_TAG = "auto-pick"
 SUBSCRIPTION_EXPIRED_REMARK = "Продлите подписку в боте @satkavpn_bot"
@@ -2044,6 +2047,9 @@ def prepare_beeline_whitelist_cfg(native_cfg: dict) -> dict:
 
 
 def append_beeline_whitelist(result: list, natives: dict[str, dict]) -> None:
+    """Beeline CDN — выключен по умолчанию, пока нода/кабинет настраиваются заново."""
+    if not BEELINE_IN_SUBSCRIPTION:
+        return
     native = natives.get(BEELINE_NATIVE_KEY)
     if not native:
         return

@@ -167,8 +167,9 @@ def main() -> int:
         "address": TECH_DOMAIN,
         "port": 443,
         "path": TUNNEL_PATH,
+        # SNI to origin through CDN; HTTP Host must be tech CDN domain (bee-he Host → 403)
         "sni": ORIGIN_DOMAIN,
-        "host": ORIGIN_DOMAIN,
+        "host": TECH_DOMAIN,
         "alpn": "h2",
         "fingerprint": "firefox",
         "securityLayer": "DEFAULT",

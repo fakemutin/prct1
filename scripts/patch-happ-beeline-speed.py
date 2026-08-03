@@ -42,7 +42,7 @@ new_finalize = '''def optimize_beeline_xhttp_extra(cfg: dict) -> None:
     extra = xh.get("extra")
     if not isinstance(extra, dict):
         return
-    extra["xmux"] = {"maxConcurrency": "32", "maxConnections": "16"}
+    extra["xmux"] = {"maxConcurrency": "32"}
     extra["xPaddingBytes"] = "0-0"
     for k in ("xPaddingObfsMode", "xPaddingMethod", "xPaddingHeader", "xPaddingPlacement"):
         extra.pop(k, None)

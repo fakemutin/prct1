@@ -21,9 +21,10 @@ scp_cmd() {
   sshpass -p "$REMOTE_PW" scp -o StrictHostKeyChecking=no -o ConnectTimeout=20 "$@"
 }
 
-echo ">>> Upload logging_handler.py"
+echo ">>> Upload custom patches"
 ssh_cmd "mkdir -p ${BEDOLAGA_DIR}/custom"
 scp_cmd "${SCRIPT_DIR}/logging_handler.py" "${REMOTE_USER}@${REMOTE_HOST}:${BEDOLAGA_DIR}/custom/logging_handler.py"
+scp_cmd "${SCRIPT_DIR}/channel_subscription_service.py" "${REMOTE_USER}@${REMOTE_HOST}:${BEDOLAGA_DIR}/custom/channel_subscription_service.py"
 
 echo ">>> Patch docker-compose.yml"
 ssh_cmd "python3" <<'PY'
@@ -38,6 +39,13 @@ if mount not in text:
     if needle not in text:
         raise SystemExit("channel_checker mount not found")
     text = text.replace(needle, needle + "\n" + mount)
+
+svc_mount = "      - ./custom/channel_subscription_service.py:/app/app/services/channel_subscription_service.py:ro"
+if svc_mount not in text:
+    needle = "      - ./custom/logging_handler.py:/app/app/logging_handler.py:ro"
+    if needle not in text:
+        raise SystemExit("logging_handler mount not found")
+    text = text.replace(needle, needle + "\n" + svc_mount)
 
 if "extra_hosts:" not in text:
     needle = "    env_file:\n      - .env"
@@ -64,17 +72,26 @@ path.write_text(text)
 print("docker-compose.yml updated")
 PY
 
-echo ">>> Recreate bot container"
-ssh_cmd "cd ${BEDOLAGA_DIR} && docker compose up -d --force-recreate bot"
+echo ">>> Recreate bot container (without touching db/redis)"
+ssh_cmd "cd ${BEDOLAGA_DIR} && docker compose up -d --no-deps --force-recreate bot"
 
 echo ">>> Verify"
 ssh_cmd "docker exec bedolaga_bot python3 -c \"
 import socket
 print('panel', socket.gethostbyname('panel.satkaconnect.xyz'))
 print('telegram', socket.gethostbyname('api.telegram.org'))
-from app.logging_handler import _is_transient_telegram_polling_error
+from app.logging_handler import (
+    _is_transient_db_error,
+    _is_transient_telegram_transport_error,
+)
 sample={'logger':'aiogram.dispatcher','event':'Failed to fetch updates','e':Exception('Request timeout error')}
-print('filter', _is_transient_telegram_polling_error(sample))
+print('poll_filter', _is_transient_telegram_transport_error(sample))
+bad_gw={'logger':'app.services.channel_subscription_service','event':'Unexpected error checking channel','error':'Telegram server says - Bad Gateway'}
+print('gw_filter', _is_transient_telegram_transport_error(bad_gw))
+db_err={'logger':'app.services.monitoring_service','event':'Error checking channel subscriptions','error':Exception('connection is closed')}
+print('db_filter', _is_transient_db_error(db_err))
+from app.services.channel_subscription_service import TelegramServerError
+print('svc_import', TelegramServerError.__name__)
 \""
 
 echo "Done."

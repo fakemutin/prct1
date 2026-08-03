@@ -77,33 +77,121 @@ IGNORED_LOGGER_PREFIXES: Final[tuple[str, ...]] = (
 )
 
 
-def _is_transient_telegram_polling_error(event_dict: dict[str, Any]) -> bool:
-    """Skip noisy aiogram long-polling transport errors (timeouts, DNS blips).
+_TRANSIENT_TELEGRAM_MARKERS: Final[tuple[str, ...]] = (
+    'bad gateway',
+    'gateway timeout',
+    'service unavailable',
+    'internal server error',
+    'too many requests',
+    '502',
+    '503',
+    '504',
+    '500',
+)
 
-    These are retried automatically by aiogram and do not require admin alerts.
+
+def _get_exception_from_event(event_dict: dict[str, Any]) -> BaseException | None:
+    """Return the first BaseException found in exc_info or common error kwargs."""
+    exc_info = event_dict.get('exc_info')
+    if isinstance(exc_info, tuple) and len(exc_info) > 1 and isinstance(exc_info[1], BaseException):
+        return exc_info[1]
+
+    for key in ('error', 'exc', 'exception', 'e', 'err'):
+        candidate = event_dict.get(key)
+        if isinstance(candidate, BaseException):
+            return candidate
+    return None
+
+
+def _iter_exception_chain(exc: BaseException | None, *, limit: int = 8):
+    seen = 0
+    while exc is not None and seen < limit:
+        yield exc
+        exc = exc.__cause__ or exc.__context__
+        seen += 1
+
+
+def _message_looks_transient_telegram(text: str) -> bool:
+    lowered = text.lower()
+    if any(marker in lowered for marker in _TRANSIENT_TELEGRAM_MARKERS):
+        return True
+    return (
+        'timeout' in lowered
+        or 'network' in lowered
+        or 'name resolution' in lowered
+        or 'dns' in lowered
+        or 'connection reset' in lowered
+        or 'connection refused' in lowered
+    )
+
+
+def _is_transient_telegram_transport_error(event_dict: dict[str, Any]) -> bool:
+    """Skip transient Telegram API / long-polling transport failures.
+
+    aiogram retries these automatically; alerting admins only creates noise.
     """
-    logger_name = str(event_dict.get('logger', ''))
-    if logger_name != 'aiogram.dispatcher':
-        return False
-
     event_msg = str(event_dict.get('event', '')).lower()
-    if 'failed to fetch updates' not in event_msg:
-        return False
+
+    for exc in _iter_exception_chain(_get_exception_from_event(event_dict)):
+        exc_name = type(exc).__name__.lower()
+        exc_msg = str(exc).lower()
+        if exc_name in ('telegramservererror', 'telegramnetworkerror', 'clientconnectorerror'):
+            return True
+        if _message_looks_transient_telegram(f'{exc_name} {exc_msg}'):
+            return True
 
     for key in ('error', 'exc', 'exception', 'e', 'err'):
         candidate = event_dict.get(key)
         if candidate is None:
             continue
-        candidate_name = type(candidate).__name__.lower()
-        candidate_msg = str(candidate).lower()
-        if 'timeout' in candidate_name or 'timeout' in candidate_msg:
-            return True
-        if 'network' in candidate_name or 'network' in candidate_msg:
-            return True
-        if 'dns' in candidate_name or 'name resolution' in candidate_msg:
+        if isinstance(candidate, BaseException):
+            continue
+        if _message_looks_transient_telegram(str(candidate)):
             return True
 
-    return 'timeout' in event_msg or 'network' in event_msg
+    if _message_looks_transient_telegram(event_msg):
+        return True
+
+    logger_name = str(event_dict.get('logger', ''))
+    if logger_name == 'aiogram.dispatcher' and 'failed to fetch updates' in event_msg:
+        return True
+
+    if logger_name == 'app.services.channel_subscription_service' and 'checking channel' in event_msg:
+        for key in ('error', 'exc', 'exception', 'e', 'err'):
+            candidate = event_dict.get(key)
+            if candidate is not None and _message_looks_transient_telegram(str(candidate)):
+                return True
+
+    return False
+
+
+def _is_transient_db_error(event_dict: dict[str, Any]) -> bool:
+    """Skip stale PostgreSQL pool connections after DB restart / network blip."""
+    transient_markers = (
+        'connection is closed',
+        'underlying connection is closed',
+        'server closed the connection',
+        'connection reset',
+        'cannot call preparedstatement',
+        "can't reconnect until invalid transaction is rolled back",
+    )
+
+    for exc in _iter_exception_chain(_get_exception_from_event(event_dict)):
+        exc_name = type(exc).__name__
+        exc_msg = str(exc).lower()
+        if exc_name in ('InterfaceError', 'OperationalError', 'PendingRollbackError', 'DisconnectionError'):
+            if any(marker in exc_msg for marker in transient_markers):
+                return True
+        if 'asyncpg' in type(exc).__module__ and 'interface' in exc_name.lower():
+            if any(marker in exc_msg for marker in transient_markers):
+                return True
+
+    for key in ('error', 'exc', 'exception', 'e', 'err'):
+        candidate = event_dict.get(key)
+        if candidate is not None and any(marker in str(candidate).lower() for marker in transient_markers):
+            return True
+
+    return False
 
 
 def _is_transient_remnawave_error(event_dict: dict[str, Any]) -> bool:
@@ -217,8 +305,12 @@ class TelegramNotifierProcessor:
         if _is_transient_remnawave_error(event_dict):
             return event_dict
 
-        # 4c. Skip transient Telegram long-polling transport errors.
-        if _is_transient_telegram_polling_error(event_dict):
+        # 4c. Skip transient Telegram transport errors (polling, getChatMember, 502/503).
+        if _is_transient_telegram_transport_error(event_dict):
+            return event_dict
+
+        # 4d. Skip stale PostgreSQL connections after DB restart / brief outage.
+        if _is_transient_db_error(event_dict):
             return event_dict
 
         # 5. Bot not initialized yet — skip
@@ -393,6 +485,29 @@ def _make_event_dict_error(event_dict: dict[str, Any]) -> Exception:
             if candidate is not None:
                 parts.append(str(candidate))
                 break
+
+    skip_keys = {
+        'event',
+        'level',
+        'logger',
+        'timestamp',
+        'exc_info',
+        '_admin_notified',
+        'e',
+        'error',
+        'exc',
+        'exception',
+        'err',
+    }
+    extras: list[str] = []
+    for key, value in event_dict.items():
+        if key in skip_keys or value is None:
+            continue
+        if isinstance(value, BaseException):
+            continue
+        extras.append(f'{key}={value!r}')
+    if extras:
+        parts.append('; '.join(extras[:6]))
 
     message = ' — '.join(parts) if parts else 'Unknown log error'
     error = error_cls(message)

@@ -509,7 +509,7 @@ def optimize_performance(cfg: dict) -> None:
 
 
 def normalize_beeline_outbound(ob: dict) -> None:
-    """Beeline CDN xhttp: TLS на клиенте ломает Happ (handshake error), CDN принимает без stream TLS."""
+    """Beeline CDN xhttp: без stream TLS; домены резолвятся на стороне прокси."""
     ss = ob.setdefault("streamSettings", {})
     if ss.get("network") != "xhttp":
         return
@@ -519,7 +519,77 @@ def normalize_beeline_outbound(ob: dict) -> None:
     sock = ss.setdefault("sockopt", {})
     sock.setdefault("tcpFastOpen", True)
     sock.setdefault("tcpNoDelay", True)
-    sock.setdefault("domainStrategy", "UseIPv4")
+    sock["domainStrategy"] = "AsIs"
+
+
+def rebuild_beeline_whitelist_routing(
+    cfg: dict,
+    *,
+    proxy_tag: str = "proxy",
+) -> None:
+    """Beeline xhttp: DNS и весь трафик через туннель (UDP:53 режется на глушилках)."""
+    ensure_direct_outbound(cfg)
+    cfg["routing"] = {
+        "domainStrategy": "AsIs",
+        "rules": [
+            {"type": "field", "ip": list(PRIVATE_CIDRS), "outboundTag": "direct"},
+            *_whitelist_direct_bypass_rules(),
+            {
+                "type": "field",
+                "network": "tcp,udp",
+                "port": "53",
+                "outboundTag": proxy_tag,
+            },
+            _whitelist_default_egress_rule(proxy_tag=proxy_tag),
+        ],
+    }
+
+
+def finalize_beeline_whitelist_cfg(
+    cfg: dict,
+    *,
+    ping_seed: str | None = None,
+) -> None:
+    sanitize_routing(cfg)
+    strip_whitelist_outbounds(cfg)
+    rebuild_beeline_whitelist_routing(cfg)
+    ensure_whitelist_sniffing(cfg)
+    ob = whitelist_primary_outbound(cfg) or get_vless_outbound(cfg)
+    if ob:
+        normalize_beeline_outbound(ob)
+    cfg.pop("dns", None)
+    if ping_seed:
+        apply_fake_ping_meta(cfg, ping_seed)
+
+
+def happ_whitelist_routing_link() -> str:
+    """Happ routing profile: tunnel DNS + global proxy для JSON-конфигов на глушилках."""
+    direct_sites = [
+        d[7:] if d.startswith("domain:") else d for d in WHITELIST_APP_DIRECT_DOMAINS
+    ]
+    profile = {
+        "Name": "SatkaVPN WL",
+        "GlobalProxy": "true",
+        "RemoteDNSType": "DoU",
+        "RemoteDNSIP": "1.1.1.1",
+        "DomesticDNSType": "DoU",
+        "DomesticDNSIP": "8.8.8.8",
+        "DomainStrategy": "AsIs",
+        "DirectIp": [
+            "10.0.0.0/8",
+            "172.16.0.0/12",
+            "192.168.0.0/16",
+            "169.254.0.0/16",
+            "224.0.0.0/4",
+            "255.255.255.255",
+        ],
+        "DirectSites": direct_sites,
+        "FakeDNS": "false",
+    }
+    blob = base64.b64encode(
+        json.dumps(profile, ensure_ascii=False).encode("utf-8")
+    ).decode("ascii")
+    return f"happ://routing/onadd/{blob}"
 
 
 def finalize_cfg(cfg: dict, *, ping_seed: str | None = None) -> None:
@@ -1995,14 +2065,9 @@ def index_natives(items: list) -> dict[str, dict]:
 def prepare_beeline_whitelist_cfg(native_cfg: dict) -> dict:
     cfg = copy.deepcopy(native_cfg)
     cfg["remarks"] = BEELINE_WHITELIST_REMARK
-    finalize_whitelist_cfg(cfg, ping_seed=BEELINE_WHITELIST_REMARK)
-    ob = whitelist_primary_outbound(cfg) or get_vless_outbound(cfg)
-    if ob:
-        normalize_beeline_outbound(ob)
+    finalize_beeline_whitelist_cfg(cfg, ping_seed=BEELINE_WHITELIST_REMARK)
     meta = cfg.setdefault("meta", {})
-    meta["serverDescription"] = (
-        "CDN: wr6wsz097v.a.trbcdn.net · origin nl-bee — только для CDN, не для скана с LTE"
-    )
+    meta["serverDescription"] = "Все операторы · LTE · Safari/TG через туннель"
     return cfg
 
 

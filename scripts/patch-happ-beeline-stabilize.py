@@ -1,0 +1,143 @@
+#!/usr/bin/env python3
+"""Stabilize: remove fakeip/maxConnections (broke Safari); DoH + bank direct DNS."""
+from pathlib import Path
+
+path = Path("/opt/satkavpn/happ_merge.py")
+text = path.read_text()
+
+old_optimize = '''def optimize_beeline_xhttp_extra(cfg: dict) -> None:
+    """Upload: parallel connections + large POST bodies; keep CDN padding obfs."""
+    ob = get_vless_outbound(cfg) or get_user_vless_outbound(cfg)
+    if not ob:
+        return
+    xh = ob.get("streamSettings", {}).get("xhttpSettings", {})
+    extra = xh.get("extra")
+    if not isinstance(extra, dict):
+        return
+    # maxConnections only (not with maxConcurrency) — better packet-up upload
+    extra["xmux"] = {
+        "maxConnections": "12",
+        "hMaxRequestTimes": "400-800",
+        "hMaxReusableSecs": "1200-2400",
+        "hKeepAlivePeriod": -1,
+    }
+    extra.setdefault("xPaddingBytes", "40-100")
+    extra.setdefault("xPaddingObfsMode", True)
+    extra.setdefault("xPaddingMethod", "tokenish")
+    extra.setdefault("xPaddingHeader", "X-Api-Key")
+    extra.setdefault("xPaddingPlacement", "header")
+    extra["scMinPostsIntervalMs"] = "0-1"
+    extra["scMaxEachPostBytes"] = "2000000"
+    extra["scMaxBufferedPosts"] = 64'''
+
+new_optimize = '''def optimize_beeline_xhttp_extra(cfg: dict) -> None:
+    """Stable xmux; keep CDN padding obfs (no maxConnections — breaks Happ/Safari)."""
+    ob = get_vless_outbound(cfg) or get_user_vless_outbound(cfg)
+    if not ob:
+        return
+    xh = ob.get("streamSettings", {}).get("xhttpSettings", {})
+    extra = xh.get("extra")
+    if not isinstance(extra, dict):
+        return
+    extra["xmux"] = {
+        "maxConcurrency": "8",
+        "hMaxRequestTimes": "300-600",
+        "hMaxReusableSecs": "900-1800",
+    }
+    extra.setdefault("xPaddingBytes", "50-150")
+    extra.setdefault("xPaddingObfsMode", True)
+    extra.setdefault("xPaddingMethod", "tokenish")
+    extra.setdefault("xPaddingHeader", "X-Api-Key")
+    extra.setdefault("xPaddingPlacement", "header")
+    extra["scMinPostsIntervalMs"] = "2-4"'''
+
+old_finalize = '''def finalize_beeline_tunnel_cfg(cfg: dict) -> None:
+    """LTE Beeline: fakeip browsers, banks direct + real DNS, mux upload tuning."""
+    strip_whitelist_outbounds(cfg)
+    ensure_block_outbound(cfg)
+    ensure_direct_outbound(cfg)
+    ensure_beeline_sniff_inbound(cfg)
+    optimize_beeline_xhttp_extra(cfg)
+    direct_names = beeline_direct_domain_names()
+    for ob in cfg.get("outbounds", []):
+        if ob.get("tag") == "proxy" and ob.get("protocol") == "vless":
+            ss = ob.setdefault("streamSettings", {})
+            sock = ss.setdefault("sockopt", {})
+            sock["tcpFastOpen"] = True
+            sock["tcpNoDelay"] = True
+            sock["domainStrategy"] = "UseIPv4"
+            sock["tcpKeepAliveInterval"] = 30
+    cfg["dns"] = {
+        "servers": [
+            {"tag": "direct-dns", "address": "local"},
+            {"tag": "remote-dns", "address": "https://1.1.1.1/dns-query", "detour": "proxy"},
+            {"tag": "fakeip", "address": "fakeip"},
+        ],
+        "rules": [
+            {"domain": direct_names, "server": "direct-dns"},
+            {"queryType": ["A", "AAAA"], "server": "fakeip"},
+        ],
+        "fakeip": {"ipPool": "198.18.0.0/15", "poolType": "IPv4"},
+        "queryStrategy": "UseIPv4",
+        "disableFallback": True,
+    }
+    cfg["routing"] = {
+        "domainStrategy": "IPIfNonMatch",
+        "rules": [
+            {"type": "field", "ip": list(PRIVATE_CIDRS), "outboundTag": "direct"},
+            *_whitelist_direct_bypass_rules(),
+            {"type": "field", "ip": ["198.18.0.0/15"], "outboundTag": "proxy"},
+            {"type": "field", "network": "udp", "port": "443", "outboundTag": "block"},
+            {"type": "field", "network": "tcp,udp", "outboundTag": "proxy"},
+        ],
+    }'''
+
+new_finalize = '''def finalize_beeline_tunnel_cfg(cfg: dict) -> None:
+    """LTE Beeline: DoH for browser; banks/apps direct with real DNS (no fakeip)."""
+    strip_whitelist_outbounds(cfg)
+    ensure_block_outbound(cfg)
+    ensure_direct_outbound(cfg)
+    optimize_beeline_xhttp_extra(cfg)
+    direct_names = beeline_direct_domain_names()
+    for ob in cfg.get("outbounds", []):
+        if ob.get("tag") == "proxy" and ob.get("protocol") == "vless":
+            ss = ob.setdefault("streamSettings", {})
+            sock = ss.setdefault("sockopt", {})
+            sock["tcpFastOpen"] = True
+            sock["tcpNoDelay"] = True
+            sock["domainStrategy"] = "UseIPv4"
+            sock["tcpKeepAliveInterval"] = 30
+    cfg["dns"] = {
+        "servers": [
+            {"tag": "remote-dns", "address": "https://1.1.1.1/dns-query", "detour": "proxy"},
+            {"tag": "direct-dns", "address": "1.1.1.1"},
+        ],
+        "rules": [
+            {"domain": direct_names, "server": "direct-dns"},
+        ],
+        "queryStrategy": "UseIPv4",
+        "disableFallback": True,
+    }
+    cfg["routing"] = {
+        "domainStrategy": "IPIfNonMatch",
+        "rules": [
+            {"type": "field", "ip": list(PRIVATE_CIDRS), "outboundTag": "direct"},
+            *_whitelist_direct_bypass_rules(),
+            {"type": "field", "network": "udp", "port": "443", "outboundTag": "block"},
+            {"type": "field", "network": "tcp,udp", "outboundTag": "proxy"},
+        ],
+    }'''
+
+if "fakeip browsers" not in text and "no fakeip" in text:
+    print("stabilize already applied")
+    raise SystemExit(0)
+
+if old_optimize not in text:
+    raise SystemExit("optimize block not found")
+if old_finalize not in text:
+    raise SystemExit("finalize block not found")
+
+text = text.replace(old_optimize, new_optimize)
+text = text.replace(old_finalize, new_finalize)
+path.write_text(text)
+print("stabilize patch OK")

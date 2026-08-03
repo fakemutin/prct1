@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+"""DNS via proxy + full tunnel routing for Beeline LTE (browser needs DNS; Telegram uses fixed IPs)."""
 from pathlib import Path
 
 path = Path("/opt/satkavpn/happ_merge.py")
@@ -7,7 +8,7 @@ text = path.read_text()
 helper = '''
 
 def finalize_beeline_tunnel_cfg(cfg: dict) -> None:
-    """LTE Beeline: DNS + all traffic through CDN tunnel (browser needs DNS; Telegram uses fixed IPs)."""
+    """LTE Beeline: DNS + all traffic through CDN tunnel."""
     strip_whitelist_outbounds(cfg)
     ensure_block_outbound(cfg)
     for ob in cfg.get("outbounds", []):
@@ -36,31 +37,6 @@ def finalize_beeline_tunnel_cfg(cfg: dict) -> None:
 '''
 
 if "def finalize_beeline_tunnel_cfg" not in text:
-    text = text.replace(
-        "def prepare_beeline_whitelist_cfg(native_cfg: dict) -> dict:",
-        helper + "\ndef prepare_beeline_whitelist_cfg(native_cfg: dict) -> dict:",
-    )
+    raise SystemExit("finalize_beeline_tunnel_cfg already applied or base file changed")
 
-old = '''    cfg.pop("dns", None)
-    cfg.pop("routing", None)
-    cfg.pop("burstObservatory", None)
-    cfg.pop("observatory", None)
-    apply_beeline_client_tls(cfg)
-    # real ping only for beeline LTE
-    pass  # apply_fake_ping_meta removed
-    return cfg'''
-
-new = '''    cfg.pop("dns", None)
-    cfg.pop("routing", None)
-    cfg.pop("burstObservatory", None)
-    cfg.pop("observatory", None)
-    apply_beeline_client_tls(cfg)
-    finalize_beeline_tunnel_cfg(cfg)
-    return cfg'''
-
-if old not in text:
-    raise SystemExit("prepare_beeline block not found")
-text = text.replace(old, new)
-
-path.write_text(text)
-print("dns/tunnel patch OK")
+print("already applied or run on server via /tmp/fix_beeline_dns.py")

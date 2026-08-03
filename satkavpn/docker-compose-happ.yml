@@ -1,0 +1,26 @@
+services:
+  happ-merge:
+    image: python:3.12-slim
+    container_name: happ-merge
+    hostname: happ-merge
+    restart: always
+    working_dir: /app
+    volumes:
+      - ./happ_merge.py:/app/happ_merge.py:ro
+      - ./happ-merge-server.py:/app/happ-merge-server.py:ro
+      - ./locations-order.json:/app/locations-order.json:ro
+      - ./free-tokens.json:/app/free-tokens.json:ro
+      - ./whitelist-vless.json:/app/whitelist-vless.json:ro
+      - ./candelix.env:/app/candelix.env:ro
+    env_file:
+      - candelix.env
+    command: sh -c "pip install -q --root-user-action=ignore pyyaml psycopg2-binary && exec python3 happ-merge-server.py"
+    networks:
+      - remnawave-network
+      - bedolaga_bot-network
+
+networks:
+  remnawave-network:
+    external: true
+  bedolaga_bot-network:
+    external: true

@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="ru" class="dark satka-cabinet">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" href="/logo.svg" type="image/svg+xml" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, viewport-fit=cover"
+    />
+    <meta name="theme-color" content="#030303" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="format-detection" content="telephone=no" />
+    <meta name="referrer" content="strict-origin-when-cross-origin" />
+    <title>Satka — личный кабинет</title>
+    <script>
+      (function () {
+        try {
+          localStorage.setItem('onboarding_completed', 'true');
+          var theme = localStorage.getItem('satka-cabinet-theme-preset') || 'dark';
+          var colors = { dark: '#030303', light: '#f4f4f6', midnight: '#080d18', aurora: '#061210', rose: '#10080c', 'liquid-glass': '#050a12' };
+          var html = document.documentElement;
+          html.setAttribute('data-satka-theme', theme);
+          html.classList.toggle('dark', theme !== 'light');
+          html.classList.toggle('light', theme === 'light');
+          html.classList.toggle('satka-lg-active', theme === 'liquid-glass');
+          document.write('<style>body{background:' + (colors[theme] || '#030303') + '!important;margin:0}</style>');
+        } catch (e) {}
+        var mobile = window.matchMedia('(max-width: 768px)').matches;
+        if (mobile) document.documentElement.classList.add('satka-mobile');
+        var cores = navigator.hardwareConcurrency || 4;
+        var low =
+          window.matchMedia('(prefers-reduced-motion: reduce)').matches ||
+          cores < 2;
+        if (low) document.documentElement.classList.add('satka-low-perf');
+        var isTelegram =
+          window.TelegramWebviewProxy ||
+          location.hash.indexOf('tgWebApp') !== -1 ||
+          location.search.indexOf('tgWebApp') !== -1;
+        if (isTelegram) {
+          document.documentElement.classList.add('satka-in-telegram');
+          var s = document.createElement('script');
+          s.src = 'https://telegram.org/js/telegram-web-app.js';
+          s.async = true;
+          document.head.appendChild(s);
+        }
+      })();
+    </script>
+    <style>
+      html,
+      body {
+        background: var(--satka-bg, #030303);
+        margin: 0;
+      }
+      html[data-satka-theme='light'],
+      html[data-satka-theme='light'] body {
+        background: #f4f4f6;
+      }
+      html[data-satka-theme='liquid-glass'],
+      html[data-satka-theme='liquid-glass'] body {
+        background: #050a12 !important;
+      }
+      html[data-satka-theme='liquid-glass'] #root {
+        background: transparent !important;
+        min-height: 100dvh;
+      }
+      html[data-satka-theme='liquid-glass'] .satka-shell {
+        opacity: 1;
+      }
+      html[data-satka-theme='liquid-glass'] .satka-shell .satka-bg {
+        background: linear-gradient(168deg, #0b1224 0%, #050a12 50%, #03060c 100%);
+      }
+      #root {
+        min-height: 100dvh;
+      }
+    </style>
+    <script src="/satka-theme-boot.js?v=1"></script>
+    <script type="module" crossorigin src="/assets/index-D1lenDEX.js"></script>
+    <link rel="modulepreload" crossorigin href="/assets/vendor-react-B5aZ5G0Y.js" />
+    <link rel="modulepreload" crossorigin href="/assets/vendor-query-qJWxXJpd.js" />
+    <link rel="modulepreload" crossorigin href="/assets/vendor-utils-rksnccus.js" />
+    <link rel="modulepreload" crossorigin href="/assets/vendor-telegram-BljK9Sw_.js" />
+    <link rel="modulepreload" crossorigin href="/assets/vendor-twemoji-D9HvikB8.js" />
+    <link rel="modulepreload" crossorigin href="/assets/vendor-i18n-BxdFJVG3.js" />
+    <link rel="modulepreload" crossorigin href="/assets/vendor-motion-yrvsEvRj.js" />
+    <link rel="modulepreload" crossorigin href="/assets/vendor-radix-CmBkAP5K.js" />
+    <link rel="modulepreload" crossorigin href="/assets/vendor-cmdk-CTFjeOaw.js" />
+    <link rel="stylesheet" crossorigin href="/assets/index-BRTvHGRZ.css" />
+    <link rel="preload" href="/satka-theme-liquid-glass.css?v=4" as="style" />
+    <link rel="stylesheet" href="/satka-theme.css?v=18" />
+    <link rel="stylesheet" href="/satka-theme-presets.css?v=11" />
+    <link rel="stylesheet" href="/satka-theme-liquid-glass.css?v=4" />
+    <link rel="stylesheet" href="/satka-support-ui.css?v=4" />
+    <link rel="stylesheet" href="/satka-referral-wheel-cabinet.css?v=13" />
+    <link rel="stylesheet" href="/satka-referral-ui.css?v=2" />
+    <link rel="stylesheet" href="/satka-cabinet-fx.css?v=2" />
+    <link rel="stylesheet" href="/satka-register-success.css?v=1" />
+    <link rel="stylesheet" href="/satka-admin-email-users.css?v=2" />
+    <script defer src="/satka-i18n.js?v=4"></script>
+    <script defer src="/satka-cabinet-api.js?v=1"></script>
+    <script defer src="/satka-fix.js?v=5"></script>
+    <script defer src="/satka-neutral-meta.js?v=1"></script>
+    <script defer src="/satka-desktop-dock.js?v=2"></script>
+    <script defer src="/satka-cabinet-logo.js?v=1"></script>
+    <script defer src="/satka-support-ui.js?v=3"></script>
+    <script defer src="/satka-support-tickets.js?v=4"></script>
+    <script defer src="/satka-referral-ui.js?v=1"></script>
+    <script defer src="/satka-referral-wheel-cabinet.js?v=14"></script>
+    <script defer src="/satka-cabinet-fx.js?v=3"></script>
+    <script defer src="/satka-theme-switcher.js?v=13"></script>
+    <script defer src="/satka-theme-liquid-glass.js?v=4"></script>
+    <script defer src="/satka-login-fix.js?v=5"></script>
+    <script defer src="/satka-register-success.js?v=4"></script>
+    <script defer src="/satka-admin-email-users.js?v=2"></script>
+  </head>
+  <body>
+    <div class="satka-shell" aria-hidden="true">
+      <div class="satka-bg">
+        <div class="satka-orb satka-orb-1"></div>
+        <div class="satka-orb satka-orb-2"></div>
+        <div class="satka-orb satka-orb-3"></div>
+      </div>
+      <div class="satka-scroll-progress"></div>
+    </div>
+    <div id="root"></div>
+  </body>
+</html>

@@ -199,6 +199,25 @@ BEELINE_NATIVE_KEY = "Нидерланды Beeline"
 BEELINE_IN_SUBSCRIPTION = os.environ.get(
     "BEELINE_IN_SUBSCRIPTION", "true"
 ).lower() in ("1", "true", "yes")
+# Telegram / Web — явный proxy (MTProto, WebK, t.me на глушилках)
+BEELINE_TELEGRAM_DOMAINS = [
+    "domain:telegram.org",
+    "domain:t.me",
+    "domain:telegra.ph",
+    "domain:telesco.pe",
+    "domain:tdesktop.com",
+    "domain:cdn-telegram.org",
+    "domain:tx.me",
+    "domain:usercontent.dev",
+    "domain:web.telegram.org",
+    "domain:core.telegram.org",
+    "domain:pluto.web.telegram.org",
+    "domain:venus.web.telegram.org",
+    "domain:aurora.web.telegram.org",
+    "domain:vestige.web.telegram.org",
+    "domain:flora.web.telegram.org",
+    "domain:k.telegram.org",
+]
 AUTO_LOCATION_REMARK = "🎲 Авто-выбор локации"
 AUTO_BALANCER_TAG = "auto-pick"
 SUBSCRIPTION_EXPIRED_REMARK = "Продлите подписку в боте @satkavpn_bot"
@@ -525,22 +544,47 @@ def normalize_beeline_outbound(ob: dict) -> None:
     sock["domainStrategy"] = "AsIs"
 
 
+def beeline_dns_block() -> dict:
+    """DoH через туннель — UDP:53 на глушилках режется, системный DNS тоже."""
+    return {
+        "servers": [
+            "https://1.1.1.1/dns-query",
+            "https://8.8.8.8/dns-query",
+            "https://dns.google/dns-query",
+            "1.1.1.1",
+            "8.8.8.8",
+        ],
+        "queryStrategy": "UseIPv4",
+    }
+
+
 def rebuild_beeline_whitelist_routing(
     cfg: dict,
     *,
     proxy_tag: str = "proxy",
 ) -> None:
-    """Beeline xhttp: DNS и весь трафик через туннель (UDP:53 режется на глушилках)."""
+    """Beeline xhttp: whitelist routing + Telegram/QUIC/DNS через туннель."""
     ensure_direct_outbound(cfg)
     cfg["routing"] = {
-        "domainStrategy": "AsIs",
+        "domainStrategy": "IPIfNonMatch",
         "rules": [
             {"type": "field", "ip": list(PRIVATE_CIDRS), "outboundTag": "direct"},
             *_whitelist_direct_bypass_rules(),
             {
                 "type": "field",
+                "domain": list(BEELINE_TELEGRAM_DOMAINS),
+                "outboundTag": proxy_tag,
+            },
+            {
+                "type": "field",
                 "network": "tcp,udp",
                 "port": "53",
+                "outboundTag": proxy_tag,
+            },
+            {
+                "type": "field",
+                "network": "udp",
+                "port": "443",
                 "outboundTag": proxy_tag,
             },
             _whitelist_default_egress_rule(proxy_tag=proxy_tag),
@@ -556,11 +600,10 @@ def finalize_beeline_whitelist_cfg(
     sanitize_routing(cfg)
     strip_whitelist_outbounds(cfg)
     rebuild_beeline_whitelist_routing(cfg)
-    ensure_whitelist_sniffing(cfg)
     ob = whitelist_primary_outbound(cfg) or get_vless_outbound(cfg)
     if ob:
         normalize_beeline_outbound(ob)
-    cfg.pop("dns", None)
+    cfg["dns"] = beeline_dns_block()
     if ping_seed:
         apply_fake_ping_meta(cfg, ping_seed)
 
@@ -2039,7 +2082,7 @@ def index_natives(items: list) -> dict[str, dict]:
 
 
 def prepare_beeline_whitelist_cfg(native_cfg: dict) -> dict:
-    """Beeline CDN — только этот сервер: AsIs + DNS:53 через туннель (LTE/глушилки)."""
+    """Beeline CDN: DoH + Telegram/QUIC через туннель, xhttp без stream TLS."""
     cfg = copy.deepcopy(native_cfg)
     cfg["remarks"] = BEELINE_WHITELIST_REMARK
     finalize_beeline_whitelist_cfg(cfg, ping_seed=BEELINE_WHITELIST_REMARK)

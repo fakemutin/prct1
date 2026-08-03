@@ -196,6 +196,9 @@ REGULAR_UNSTABLE_NUMBERS = tuple(range(27, 32))
 AUTO_WHITELIST_REMARK = "🎲 Авто-выбор белые списки"
 BEELINE_WHITELIST_REMARK = "Лучшие белые списки! | ВСЕ ОПЕРАТОРЫ"
 BEELINE_NATIVE_KEY = "Нидерланды Beeline"
+BEELINE_IN_SUBSCRIPTION = os.environ.get(
+    "BEELINE_IN_SUBSCRIPTION", "false"
+).lower() in ("1", "true", "yes")
 AUTO_LOCATION_REMARK = "🎲 Авто-выбор локации"
 AUTO_BALANCER_TAG = "auto-pick"
 SUBSCRIPTION_EXPIRED_REMARK = "Продлите подписку в боте @satkavpn_bot"
@@ -2072,7 +2075,9 @@ def prepare_beeline_whitelist_cfg(native_cfg: dict) -> dict:
 
 
 def append_beeline_whitelist(result: list, natives: dict[str, dict]) -> None:
-    """Beeline CDN — всегда #1 в секции белых списков (кроме free)."""
+    """Beeline CDN — #1 в секции БС (отключён по умолчанию, пока xhttp CDN нестабилен)."""
+    if not BEELINE_IN_SUBSCRIPTION:
+        return
     native = natives.get(BEELINE_NATIVE_KEY)
     if not native:
         return
@@ -2544,8 +2549,8 @@ def append_whitelist_subset(
             apply_fake_ping_meta(prepared[number], remark)
 
     pool_cfgs = [prepared[n] for n in auto_pool if n in prepared]
-    append_beeline_whitelist(result, natives)
     append_whitelist_auto_balancer(result, pool_cfgs, natives=natives)
+    append_beeline_whitelist(result, natives)
 
     for number in numbers:
         if number in prepared:
@@ -2571,8 +2576,8 @@ def append_whitelist_paid(
         )
 
     pool_cfgs = [prepared[n] for n in WHITELIST_AUTO_POOL if n in prepared]
-    append_beeline_whitelist(result, natives)
     append_whitelist_auto_balancer(result, pool_cfgs, natives=natives)
+    append_beeline_whitelist(result, natives)
 
     for number in WHITELIST_NUMBERS:
         if number in prepared:
@@ -2836,8 +2841,8 @@ def merge_whitelist_subscription(token: str = "") -> list:
 
     out: list[dict] = []
     pool_cfgs = [prepared[n] for n in WHITELIST_AUTO_POOL if n in prepared]
-    append_beeline_whitelist(out, natives)
     append_whitelist_auto_balancer(out, pool_cfgs, natives=natives)
+    append_beeline_whitelist(out, natives)
     for number in WHITELIST_NUMBERS:
         if number in prepared:
             out.append(prepared[number])

@@ -11,7 +11,6 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from happ_merge import (
     NativeSubscriptionError,
-    happ_whitelist_routing_link,
     is_clash_client,
     is_happ_client,
     merge_free_mihomo_yaml,
@@ -49,7 +48,7 @@ PLAN_META = {
     "whitelist": {
         "title": "SatkaVPN Whitelist",
         "announce": "@satkavpnsupport — платная подписка «Белые списки»",
-        "routing": True,
+        "routing": False,
     },
     "free": {
         "title": "SatkaVPN Free",
@@ -104,8 +103,9 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("subscription-always-hwid-enable", "0")
         self.send_header("hide-settings", "1")
         if meta["routing"]:
-            routing = os.environ.get("HAPP_ROUTING") or happ_whitelist_routing_link()
-            self.send_header("routing", routing)
+            routing = os.environ.get("HAPP_ROUTING", "")
+            if routing:
+                self.send_header("routing", routing)
         if extra:
             for key, value in extra.items():
                 self.send_header(key, value)

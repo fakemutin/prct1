@@ -21,7 +21,7 @@ SQUAD_UUIDS = (
 )
 
 ORIGIN_DOMAIN = os.environ.get("BEELINE_ORIGIN_DOMAIN", "nl-bee.satkaconnect.xyz")
-TECH_DOMAIN = os.environ.get("BEELINE_TECH_DOMAIN", "myxmamekak.a.trbcdn.net")
+TECH_DOMAIN = os.environ.get("BEELINE_TECH_DOMAIN", "wr6wsz097v.a.trbcdn.net")
 TUNNEL_PATH = os.environ.get("BEELINE_TUNNEL_PATH", "/data/img/v3/813257.php")
 HOST_REMARK = "Лучшие списки! | ВСЕ ОПЕРАТОРЫ"
 INBOUND_TAG = "Bee-CDN-XHTTP-NL"

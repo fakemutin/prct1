@@ -2019,6 +2019,7 @@ def find_beeline_native(items: list) -> dict | None:
         BEELINE_WHITELIST_REMARK,
         "Лучшие списки!",
         "Лучшие белые списки!",
+        "wr6wsz097v.a.trbcdn.net",
         "myxmamekak.a.trbcdn.net",
         "/data/img/v3/813257.php",
     )

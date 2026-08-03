@@ -1956,9 +1956,23 @@ def find_native_by_key(items: list, native_key: str, *, key: str = "remarks") ->
     return None
 
 
+def find_beeline_native(items: list) -> dict | None:
+    markers = (
+        BEELINE_NATIVE_KEY,
+        BEELINE_WHITELIST_REMARK,
+        "wr6wsz097v.a.trbcdn.net",
+        "/files/sync/v1/72a9d4.aspx",
+    )
+    for item in items:
+        blob = (item.get("remarks", "") or "") + json.dumps(item, ensure_ascii=False)
+        if any(marker in blob for marker in markers):
+            return item
+    return None
+
+
 def index_natives(items: list) -> dict[str, dict]:
     out = index_by_country(items)
-    beeline = find_native_by_key(items, BEELINE_NATIVE_KEY)
+    beeline = find_beeline_native(items)
     if beeline:
         out[BEELINE_NATIVE_KEY] = beeline
     return out

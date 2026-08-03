@@ -184,7 +184,8 @@ REGULAR_ADBLOCK_DOMAINS = list(
 )
 
 WHITELIST_TOP_NUMBERS = frozenset({1, 2, 4, 11})
-WHITELIST_AUTO_POOL = (1, 2, 4, 11)
+# Исключены #1 (51.250.84.76) и #11 (92.223.109.89) — TCP недоступны с PL/NL
+WHITELIST_AUTO_POOL = (2, 4, 5, 6, 12)
 REGULAR_TOP_LTE_NUMBERS = frozenset({13, 15, 16, 19, 22, 23, 24, 25, 26})
 REGULAR_YT_WIFI_NUMBERS = frozenset({15, 19, 23, 24, 25, 26})
 REGULAR_AUTO_POOL = (13, 15, 16, 19, 22, 23, 24, 25, 26)
@@ -197,7 +198,7 @@ AUTO_WHITELIST_REMARK = "🎲 Авто-выбор белые списки"
 BEELINE_WHITELIST_REMARK = "Лучшие белые списки! | ВСЕ ОПЕРАТОРЫ"
 BEELINE_NATIVE_KEY = "Нидерланды Beeline"
 BEELINE_IN_SUBSCRIPTION = os.environ.get(
-    "BEELINE_IN_SUBSCRIPTION", "true"
+    "BEELINE_IN_SUBSCRIPTION", "false"
 ).lower() in ("1", "true", "yes")
 AUTO_LOCATION_REMARK = "🎲 Авто-выбор локации"
 AUTO_BALANCER_TAG = "auto-pick"
@@ -1963,12 +1964,8 @@ def find_beeline_native(items: list) -> dict | None:
     markers = (
         BEELINE_NATIVE_KEY,
         BEELINE_WHITELIST_REMARK,
-        "Лучшие белые списки!",
-        "Лучшие списки!",
         "wr6wsz097v.a.trbcdn.net",
-        "myxmamekak.a.trbcdn.net",
         "/files/sync/v1/72a9d4.aspx",
-        "/data/img/v3/813257.php",
     )
     for item in items:
         blob = (item.get("remarks", "") or "") + json.dumps(item, ensure_ascii=False)
@@ -2457,8 +2454,6 @@ def append_whitelist_subset(
         )
         if balancer:
             result.append(balancer)
-
-    append_beeline_whitelist(result, natives)
 
     for number in numbers:
         if number in prepared:

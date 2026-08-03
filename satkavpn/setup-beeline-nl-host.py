@@ -14,6 +14,11 @@ API_TOKEN = os.environ.get("REMNAWAVE_API_TOKEN", "").strip()
 PROFILE_UUID = "00000000-0000-0000-0000-000000000000"
 NODE_UUID = "1b56f65b-3f1e-4e3f-805f-da2f7ea2b24d"
 INTERNAL_INBOUND_UUID = "2f306d4e-f7b9-4017-a21c-2b7da84b82d5"
+SQUAD_UUIDS = (
+    "b4d1b0f0-62bb-496a-b1d1-2618a7374313",  # free
+    "28a5e0f5-4188-4ec8-aaf6-e8b20ec019e8",  # whitelist
+    "71926802-f39c-4db8-8583-0560b40f2156",  # free_lite
+)
 
 ORIGIN_DOMAIN = os.environ.get("BEELINE_ORIGIN_DOMAIN", "nl-bee.satkaconnect.xyz")
 TECH_DOMAIN = os.environ.get("BEELINE_TECH_DOMAIN", "wr6wsz097v.a.trbcdn.net")
@@ -141,6 +146,22 @@ def main() -> int:
         },
     )
     print("node Netherlands#2 inbounds updated")
+
+    squads = api("GET", "/api/internal-squads")["response"]["internalSquads"]
+    for squad in squads:
+        if squad["uuid"] not in SQUAD_UUIDS:
+            continue
+        inbound_uuids = [ib["uuid"] for ib in squad.get("inbounds", [])]
+        if bee_uuid in inbound_uuids:
+            print(f"squad {squad['name']}: already has Bee inbound")
+            continue
+        inbound_uuids.append(bee_uuid)
+        api(
+            "PATCH",
+            "/api/internal-squads",
+            {"uuid": squad["uuid"], "inbounds": inbound_uuids},
+        )
+        print(f"squad {squad['name']}: Bee inbound added")
 
     hosts = api("GET", "/api/hosts")["response"]
     existing = next((h for h in hosts if h.get("address") == TECH_DOMAIN), None)

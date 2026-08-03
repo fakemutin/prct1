@@ -2040,10 +2040,29 @@ def prepare_beeline_whitelist_cfg(native_cfg: dict) -> dict:
 
 
 def append_beeline_whitelist(result: list, natives: dict[str, dict]) -> None:
+    """Beeline CDN — всегда #1 в секции белых списков (кроме free)."""
     native = natives.get(BEELINE_NATIVE_KEY)
     if not native:
         return
     result.append(prepare_beeline_whitelist_cfg(native))
+
+
+def append_whitelist_auto_balancer(
+    result: list,
+    pool_cfgs: list[dict],
+    *,
+    natives: dict[str, dict] | None = None,
+) -> None:
+    if not pool_cfgs:
+        return
+    balancer = build_balancer_cfg(
+        pool_cfgs,
+        AUTO_WHITELIST_REMARK,
+        mode="whitelist",
+        natives=natives,
+    )
+    if balancer:
+        result.append(balancer)
 
 
 def prepare_native_lte_exit(cfg: dict, native_key: str) -> None:
@@ -2493,15 +2512,8 @@ def append_whitelist_subset(
             apply_fake_ping_meta(prepared[number], remark)
 
     pool_cfgs = [prepared[n] for n in auto_pool if n in prepared]
-    if pool_cfgs:
-        balancer = build_balancer_cfg(
-            pool_cfgs,
-            AUTO_WHITELIST_REMARK,
-            mode="whitelist",
-            natives=natives,
-        )
-        if balancer:
-            result.append(balancer)
+    append_beeline_whitelist(result, natives)
+    append_whitelist_auto_balancer(result, pool_cfgs, natives=natives)
 
     for number in numbers:
         if number in prepared:
@@ -2527,17 +2539,8 @@ def append_whitelist_paid(
         )
 
     pool_cfgs = [prepared[n] for n in WHITELIST_AUTO_POOL if n in prepared]
-    if pool_cfgs:
-        balancer = build_balancer_cfg(
-            pool_cfgs,
-            AUTO_WHITELIST_REMARK,
-            mode="whitelist",
-            natives=natives,
-        )
-        if balancer:
-            result.append(balancer)
-
     append_beeline_whitelist(result, natives)
+    append_whitelist_auto_balancer(result, pool_cfgs, natives=natives)
 
     for number in WHITELIST_NUMBERS:
         if number in prepared:
@@ -2801,16 +2804,8 @@ def merge_whitelist_subscription(token: str = "") -> list:
 
     out: list[dict] = []
     pool_cfgs = [prepared[n] for n in WHITELIST_AUTO_POOL if n in prepared]
-    if pool_cfgs:
-        balancer = build_balancer_cfg(
-            pool_cfgs,
-            AUTO_WHITELIST_REMARK,
-            mode="whitelist",
-            natives=natives,
-        )
-        if balancer:
-            out.append(balancer)
     append_beeline_whitelist(out, natives)
+    append_whitelist_auto_balancer(out, pool_cfgs, natives=natives)
     for number in WHITELIST_NUMBERS:
         if number in prepared:
             out.append(prepared[number])

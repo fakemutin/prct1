@@ -990,7 +990,7 @@ def ensure_beeline_sniff_inbound(cfg: dict) -> None:
 
 
 def optimize_beeline_xhttp_extra(cfg: dict) -> None:
-    """Stable xmux для Beeline CDN xhttp (без maxConnections — ломает Happ/Safari)."""
+    """xhttp extra: только безопасный xmux для Happ — padding/path не трогаем (сервер)."""
     ob = get_vless_outbound(cfg) or get_user_vless_outbound(cfg)
     if not ob:
         return
@@ -998,17 +998,10 @@ def optimize_beeline_xhttp_extra(cfg: dict) -> None:
     extra = xh.get("extra")
     if not isinstance(extra, dict):
         return
-    extra["xmux"] = {
-        "maxConcurrency": "8",
-        "hMaxRequestTimes": "300-600",
-        "hMaxReusableSecs": "900-1800",
-    }
-    extra.setdefault("xPaddingBytes", "50-150")
-    extra.setdefault("xPaddingObfsMode", True)
-    extra.setdefault("xPaddingMethod", "tokenish")
-    extra.setdefault("xPaddingHeader", "X-Api-Key")
-    extra.setdefault("xPaddingPlacement", "header")
-    extra["scMinPostsIntervalMs"] = "2-4"
+    xmux = extra.setdefault("xmux", {})
+    xmux.pop("maxConnections", None)
+    if not xmux.get("maxConcurrency"):
+        xmux["maxConcurrency"] = "8"
 
 
 def finalize_beeline_tunnel_cfg(
@@ -1034,7 +1027,10 @@ def finalize_beeline_tunnel_cfg(
         sock = ss.setdefault("sockopt", {})
         sock["tcpFastOpen"] = True
         sock["tcpNoDelay"] = True
-        sock["domainStrategy"] = "UseIPv4"
+        if ss.get("security") == "tls":
+            sock["domainStrategy"] = "AsIs"
+        else:
+            sock["domainStrategy"] = "UseIPv4"
         sock["tcpKeepAliveInterval"] = 30
     cfg["dns"] = beeline_dns_block()
     rebuild_beeline_whitelist_routing(cfg)

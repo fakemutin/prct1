@@ -180,8 +180,15 @@ YOUTUBE_ADBLOCK_DOMAINS = [
     "full:youtube.com/ptracking",
     "full:www.youtube.com/ptracking",
     "full:m.youtube.com/ptracking",
+    "full:youtube.com/get_midroll_info",
+    "full:www.youtube.com/get_midroll_info",
+    "full:m.youtube.com/get_midroll_info",
+    "full:youtube.com/initplayback",
+    "full:www.youtube.com/initplayback",
     # YouTube ad hosts
     "domain:ads.youtube.com",
+    "domain:redirector.googlevideo.com",
+    "domain:redirector.c.youtube.com",
     "domain:s.youtube.com",
     "domain:sstats.youtube.com",
     "domain:manifest.googlevideo.com",
@@ -361,7 +368,111 @@ MIHOMO_ADBLOCK_RULES = [
     "DOMAIN-KEYWORD,googlesyndication,REJECT",
     "DOMAIN-KEYWORD,doubleclick,REJECT",
     "DOMAIN-KEYWORD,adservice,REJECT",
+    "URL-REGEX,(?i)^https?://([^/]+\\.)?youtube\\.com/(pagead|api/stats/ads|ptracking|get_midroll),REJECT",
+    "URL-REGEX,(?i)^https?://([^/]+\\.)?googlevideo\\.com/.*(oad=|cmo=ad|source=oad),REJECT",
 ]
+
+ADBLOCK_DNS_TAG = "adblock-dns"
+
+
+def is_beeline_cfg(cfg: dict) -> bool:
+    remark = cfg.get("remarks", "") or ""
+    if BEELINE_WHITELIST_REMARK in remark:
+        return True
+    blob = json.dumps(cfg, ensure_ascii=False, default=str)
+    return any(
+        m in blob
+        for m in (
+            "noe0mevhvk.a.trbcdn.net",
+            "bee-he.satkaconnect",
+            "wr6wsz097v.a.trbcdn.net",
+        )
+    )
+
+
+def ensure_adblock_sniffing(cfg: dict) -> None:
+    """TLS/HTTP/QUIC sniff — без этого domain-правила на YouTube не работают."""
+    sniffing = {
+        "enabled": True,
+        "routeOnly": True,
+        "destOverride": ["http", "tls", "quic"],
+    }
+    inbounds = cfg.get("inbounds")
+    if not inbounds:
+        cfg["inbounds"] = [
+            {
+                "tag": "sniff-in",
+                "protocol": "dokodemo-door",
+                "listen": "127.0.0.1",
+                "port": 1088,
+                "settings": {"network": "tcp,udp", "followRedirect": True},
+                "sniffing": sniffing,
+            }
+        ]
+        return
+    for inbound in inbounds:
+        sniff = inbound.setdefault("sniffing", {})
+        sniff["enabled"] = True
+        sniff.setdefault("routeOnly", True)
+        dest = list(sniff.get("destOverride") or [])
+        for proto in ("http", "tls", "quic"):
+            if proto not in dest:
+                dest.append(proto)
+        sniff["destOverride"] = dest
+
+
+def apply_adblock_dns(cfg: dict) -> None:
+    """DNS-level block для рекламных доменов (работает без SNI-sniff)."""
+    dns = cfg.setdefault("dns", {})
+    servers = dns.get("servers") or ["1.1.1.1"]
+    if not isinstance(servers, list):
+        servers = [servers]
+    new_servers: list = []
+    has_block = False
+    has_remote = False
+    for s in servers:
+        if isinstance(s, dict):
+            tag = s.get("tag")
+            if tag == ADBLOCK_DNS_TAG:
+                has_block = True
+            else:
+                has_remote = True
+            new_servers.append(s)
+        else:
+            has_remote = True
+            new_servers.append(s)
+    if not has_block:
+        new_servers.append({"tag": ADBLOCK_DNS_TAG, "address": "rcode://success"})
+    if not has_remote:
+        new_servers.insert(
+            0, {"tag": "dns-remote", "address": "1.1.1.1", "detour": "proxy"}
+        )
+    dns["servers"] = new_servers
+    dns_domains: list[str] = []
+    for entry in REGULAR_ADBLOCK_DOMAINS:
+        if entry.startswith("domain:"):
+            dns_domains.append(entry[7:])
+        elif entry.startswith("full:"):
+            host = entry[5:].split("/", 1)[0]
+            if host:
+                dns_domains.append(host)
+    dns_domains = list(dict.fromkeys(dns_domains))
+    rules = list(dns.get("rules") or [])
+    if not any(
+        isinstance(r, dict) and r.get("server") == ADBLOCK_DNS_TAG for r in rules
+    ):
+        rules.insert(0, {"domain": dns_domains, "server": ADBLOCK_DNS_TAG})
+    dns["rules"] = rules
+    dns.setdefault("queryStrategy", "UseIPv4")
+
+
+def finalize_adblock_layer(cfg: dict) -> None:
+    """Sniff + DNS block (все серверы кроме Beeline)."""
+    if is_beeline_cfg(cfg):
+        return
+    ensure_adblock_sniffing(cfg)
+    apply_adblock_dns(cfg)
+
 
 MIHOMO_WHITELIST_APP_RULES = [
   # Сбер, Ozon, 2ГИС, Магнит, Wildberries, Газпромнефть — direct (без VPN)
@@ -505,6 +616,7 @@ def rebuild_safe_routing(cfg: dict) -> None:
             {"type": "field", "domain": list(RU_DIRECT_DOMAINS), "outboundTag": "direct"},
             {"type": "field", "ip": list(PRIVATE_CIDRS), "outboundTag": "direct"},
             {"type": "field", "protocol": ["bittorrent"], "outboundTag": "direct"},
+            {"type": "field", "network": "tcp,udp", "outboundTag": "proxy"},
         ],
     }
 
@@ -519,6 +631,7 @@ def rebuild_regular_routing(cfg: dict) -> None:
             {"type": "field", "domain": list(RU_DIRECT_DOMAINS), "outboundTag": "direct"},
             {"type": "field", "ip": list(PRIVATE_CIDRS), "outboundTag": "direct"},
             {"type": "field", "protocol": ["bittorrent"], "outboundTag": "direct"},
+            {"type": "field", "network": "tcp,udp", "outboundTag": "proxy"},
         ],
     }
 
@@ -527,6 +640,7 @@ def finalize_regular_cfg(cfg: dict, *, ping_seed: str | None = None) -> None:
     sanitize_routing(cfg)
     rebuild_regular_routing(cfg)
     optimize_performance(cfg)
+    finalize_adblock_layer(cfg)
     if ping_seed:
         apply_fake_ping_meta(cfg, ping_seed)
 
@@ -657,6 +771,7 @@ def finalize_cfg(cfg: dict, *, ping_seed: str | None = None) -> None:
     sanitize_routing(cfg)
     rebuild_safe_routing(cfg)
     optimize_performance(cfg)
+    finalize_adblock_layer(cfg)
     if ping_seed:
         apply_fake_ping_meta(cfg, ping_seed)
 
@@ -1145,6 +1260,7 @@ def build_balancer_cfg(
         apply_balancer_regular_routing(result, selector)
 
     optimize_performance(result)
+    finalize_adblock_layer(result)
     apply_fake_ping_meta(result, remark)
     return result
 
@@ -2469,6 +2585,7 @@ def finalize_whitelist_cfg(
     rebuild_whitelist_routing(cfg)
     ensure_whitelist_sniffing(cfg)
     optimize_performance(cfg)
+    finalize_adblock_layer(cfg)
     if ping_seed:
         apply_fake_ping_meta(cfg, ping_seed)
 

@@ -47,8 +47,8 @@ PLAN_META = {
     },
     "whitelist": {
         "title": "SatkaVPN Whitelist",
-        "announce": "@satkavpnsupport — платная подписка «Белые списки»",
-        "routing": False,
+        "announce": "@satkavpnsupport — платная подписка «Белые списки» · routing: блок рекламы YT",
+        "routing": True,
     },
     "free": {
         "title": "SatkaVPN Free",

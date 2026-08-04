@@ -914,12 +914,13 @@ def optimize_performance(cfg: dict) -> None:
 
 
 def normalize_beeline_outbound(ob: dict) -> None:
-    """Beeline CDN xhttp: без stream TLS; домены резолвятся на стороне прокси."""
+    """Beeline CDN xhttp: sockopt tuning; TLS из панели/native не сбрасываем."""
     ss = ob.setdefault("streamSettings", {})
     if ss.get("network") != "xhttp":
         return
-    ss["security"] = "none"
-    ss.pop("tlsSettings", None)
+    if ss.get("security") != "tls":
+        ss["security"] = "none"
+        ss.pop("tlsSettings", None)
     ss.pop("realitySettings", None)
     sock = ss.setdefault("sockopt", {})
     sock.setdefault("tcpFastOpen", True)
@@ -1271,6 +1272,11 @@ def vless_outbound_to_uri(ob: dict, remark: str) -> str:
             params.append(f"sni={quote(ts['serverName'], safe='')}")
         if ts.get("fingerprint"):
             params.append(f"fp={quote(ts['fingerprint'], safe='')}")
+        alpn = ts.get("alpn")
+        if alpn:
+            if isinstance(alpn, list):
+                alpn = ",".join(alpn)
+            params.append(f"alpn={quote(str(alpn), safe='')}")
 
     if net == "tcp":
         tcp = ss.get("tcpSettings") or {}

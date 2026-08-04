@@ -301,6 +301,13 @@ REGULAR_ADBLOCK_DOMAINS = list(
     dict.fromkeys(ADBLOCK_DOMAINS + YOUTUBE_ADBLOCK_DOMAINS + YOUTUBE_ADBLOCK_REGEXP)
 )
 
+# Happ/Xray routing: без regexp (ломает block-правила в Happ)
+HAPP_ROUTING_ADBLOCK_DOMAINS = list(
+    dict.fromkeys(
+        [d for d in REGULAR_ADBLOCK_DOMAINS if not d.startswith("regexp:")]
+    )
+)
+
 WHITELIST_TOP_NUMBERS = frozenset({1, 2, 4, 11})
 WHITELIST_AUTO_POOL = (1, 2, 4, 11)
 REGULAR_TOP_LTE_NUMBERS = frozenset({13, 15, 16, 19, 22, 23, 24, 25, 26})
@@ -317,6 +324,7 @@ BEELINE_NATIVE_KEY = "Нидерланды Beeline"
 BEELINE_IN_SUBSCRIPTION = os.environ.get(
     "BEELINE_IN_SUBSCRIPTION", "true"
 ).lower() in ("1", "true", "yes")
+BEELINE_TEMPLATE_TOKEN = os.environ.get("BEELINE_TEMPLATE_TOKEN", "").strip()
 # Telegram / Web — явный proxy (MTProto, WebK, t.me на глушилках)
 BEELINE_TELEGRAM_DOMAINS = [
     "domain:telegram.org",
@@ -494,14 +502,18 @@ def inject_routing_adblock_rules(cfg: dict) -> None:
         r.get("outboundTag") == "block" and r.get("domain") for r in rules
     )
     if not has_block:
-        rules.insert(
-            0,
-            {
-                "type": "field",
-                "domain": list(REGULAR_ADBLOCK_DOMAINS),
-                "outboundTag": "block",
-            },
-        )
+        # Разбить на чанки — Happ иногда игнорирует гигантский domain list
+        domains = list(HAPP_ROUTING_ADBLOCK_DOMAINS)
+        chunk = 24
+        for i in range(0, len(domains), chunk):
+            rules.insert(
+                i // chunk,
+                {
+                    "type": "field",
+                    "domain": domains[i : i + chunk],
+                    "outboundTag": "block",
+                },
+            )
     routing["rules"] = rules
 
 
@@ -564,7 +576,7 @@ def apply_adblock_dns(cfg: dict) -> None:
         )
     dns["servers"] = new_servers
     dns_domains: list[str] = []
-    for entry in REGULAR_ADBLOCK_DOMAINS:
+    for entry in HAPP_ROUTING_ADBLOCK_DOMAINS:
         if entry.startswith("domain:"):
             dns_domains.append(entry[7:])
         elif entry.startswith("full:"):
@@ -579,6 +591,20 @@ def apply_adblock_dns(cfg: dict) -> None:
         rules.insert(0, {"domain": dns_domains, "server": ADBLOCK_DNS_TAG})
     dns["rules"] = rules
     dns.setdefault("queryStrategy", "UseIPv4")
+    hosts = dns.setdefault("hosts", {})
+    for entry in HAPP_ROUTING_ADBLOCK_DOMAINS:
+        if entry.startswith("domain:"):
+            hosts[f"domain:{entry[7:]}"] = ["0.0.0.0"]
+        elif entry.startswith("full:"):
+            host = entry[5:].split("/", 1)[0]
+            if host:
+                hosts[f"domain:{host}"] = ["0.0.0.0"]
+
+
+def stamp_subscription_adblock(configs: list) -> None:
+    """Финальный проход: adblock на каждый профиль подписки (кроме Beeline)."""
+    for cfg in configs:
+        finalize_adblock_layer(cfg)
 
 
 def finalize_adblock_layer(cfg: dict) -> None:
@@ -689,7 +715,7 @@ def rebuild_whitelist_routing(
     cfg["routing"] = {
         "domainStrategy": "IPIfNonMatch",
         "rules": [
-            {"type": "field", "domain": list(REGULAR_ADBLOCK_DOMAINS), "outboundTag": "block"},
+            {"type": "field", "domain": list(HAPP_ROUTING_ADBLOCK_DOMAINS), "outboundTag": "block"},
             {"type": "field", "ip": list(PRIVATE_CIDRS), "outboundTag": "direct"},
             *_whitelist_direct_bypass_rules(),
             _whitelist_default_egress_rule(
@@ -728,7 +754,7 @@ def rebuild_safe_routing(cfg: dict) -> None:
     cfg["routing"] = {
         "domainStrategy": "IPIfNonMatch",
         "rules": [
-            {"type": "field", "domain": list(REGULAR_ADBLOCK_DOMAINS), "outboundTag": "block"},
+            {"type": "field", "domain": list(HAPP_ROUTING_ADBLOCK_DOMAINS), "outboundTag": "block"},
             {"type": "field", "domain": list(RU_DIRECT_DOMAINS), "outboundTag": "direct"},
             {"type": "field", "ip": list(PRIVATE_CIDRS), "outboundTag": "direct"},
             {"type": "field", "protocol": ["bittorrent"], "outboundTag": "direct"},
@@ -743,7 +769,7 @@ def rebuild_regular_routing(cfg: dict) -> None:
     cfg["routing"] = {
         "domainStrategy": "IPIfNonMatch",
         "rules": [
-            {"type": "field", "domain": list(REGULAR_ADBLOCK_DOMAINS), "outboundTag": "block"},
+            {"type": "field", "domain": list(HAPP_ROUTING_ADBLOCK_DOMAINS), "outboundTag": "block"},
             {"type": "field", "domain": list(RU_DIRECT_DOMAINS), "outboundTag": "direct"},
             {"type": "field", "ip": list(PRIVATE_CIDRS), "outboundTag": "direct"},
             {"type": "field", "protocol": ["bittorrent"], "outboundTag": "direct"},
@@ -1298,7 +1324,7 @@ def apply_balancer_whitelist_routing(
             }
         ],
         "rules": [
-            {"type": "field", "domain": list(REGULAR_ADBLOCK_DOMAINS), "outboundTag": "block"},
+            {"type": "field", "domain": list(HAPP_ROUTING_ADBLOCK_DOMAINS), "outboundTag": "block"},
             {"type": "field", "ip": list(PRIVATE_CIDRS), "outboundTag": "direct"},
             *_whitelist_direct_bypass_rules(),
             _whitelist_default_egress_rule(balancer_tag=AUTO_BALANCER_TAG),
@@ -1321,7 +1347,7 @@ def apply_balancer_regular_routing(cfg: dict, selector: list[str]) -> None:
         "rules": [
             {
                 "type": "field",
-                "domain": list(REGULAR_ADBLOCK_DOMAINS),
+                "domain": list(HAPP_ROUTING_ADBLOCK_DOMAINS),
                 "outboundTag": "block",
             },
             {"type": "field", "domain": list(RU_DIRECT_DOMAINS), "outboundTag": "direct"},
@@ -2360,21 +2386,48 @@ def index_natives(items: list) -> dict[str, dict]:
     return out
 
 
+def resolve_beeline_native(natives: dict[str, dict]) -> dict | None:
+    """Beeline CDN host — fallback через template token если нет в squad."""
+    native = natives.get(BEELINE_NATIVE_KEY)
+    if native:
+        return native
+    beeline = find_beeline_native(list(natives.values()))
+    if beeline:
+        return beeline
+    token = BEELINE_TEMPLATE_TOKEN
+    if not token:
+        return None
+    try:
+        satka = fetch_native_json_via_api(token)
+        return find_beeline_native(satka)
+    except Exception as exc:
+        print(f"beeline template fetch failed: {exc}")
+        return None
+
+
+def finalize_beeline_cfg(cfg: dict, *, ping_seed: str | None = None) -> None:
+    """Beeline: tunnel cfg на проде, whitelist cfg в старых ревизиях."""
+    fn = globals().get("finalize_beeline_tunnel_cfg")
+    if fn is not None:
+        fn(cfg, ping_seed=ping_seed)
+    else:
+        finalize_beeline_whitelist_cfg(cfg, ping_seed=ping_seed)
+
+
 def prepare_beeline_whitelist_cfg(native_cfg: dict) -> dict:
-    """Beeline CDN: DoH + Telegram/QUIC через туннель, xhttp без stream TLS."""
+    """Beeline CDN tunnel — без YouTube adblock routing."""
     cfg = copy.deepcopy(native_cfg)
     cfg["remarks"] = BEELINE_WHITELIST_REMARK
-    finalize_beeline_whitelist_cfg(cfg, ping_seed=BEELINE_WHITELIST_REMARK)
+    finalize_beeline_cfg(cfg, ping_seed=BEELINE_WHITELIST_REMARK)
     meta = cfg.setdefault("meta", {})
     meta["serverDescription"] = "Нидерланды · Beeline CDN · LTE · Telegram/Safari"
     return cfg
 
 
 def append_beeline_whitelist(result: list, natives: dict[str, dict]) -> None:
-    """Beeline CDN — выключен по умолчанию, пока нода/кабинет настраиваются заново."""
     if not BEELINE_IN_SUBSCRIPTION:
         return
-    native = natives.get(BEELINE_NATIVE_KEY)
+    native = resolve_beeline_native(natives)
     if not native:
         return
     result.append(prepare_beeline_whitelist_cfg(native))
@@ -3033,13 +3086,14 @@ def merge_subscription(
             result.append(cfg)
             server_no = max(server_no, number)
 
+    stamp_subscription_adblock(result)
     return result, hwid_headers
 
 
 def merge_mom_subscription(
     token: str, client_headers: dict | None = None
 ) -> tuple[list, dict[str, str]]:
-    """Тариф «Для мамы»: топ whitelist #1/#2/#4/#11 + regular #13/#15/#16/#19."""
+    """Тариф «Для мамы»: все белые списки + Beeline CDN + regular #13/#15/#16/#19."""
     if not is_subscription_active(token):
         return [build_expired_notice_cfg()], {}
 
@@ -3058,8 +3112,8 @@ def merge_mom_subscription(
     server_no = append_whitelist_subset(
         result,
         server_no,
-        numbers=MOM_WHITELIST_NUMBERS,
-        auto_pool=MOM_WHITELIST_NUMBERS,
+        numbers=WHITELIST_NUMBERS,
+        auto_pool=WHITELIST_AUTO_POOL,
         natives=natives,
         remark_formatter=format_mom_whitelist_remark,
     )
@@ -3106,6 +3160,7 @@ def merge_mom_subscription(
         if number in prepared_regular:
             result.append(prepared_regular[number])
 
+    stamp_subscription_adblock(result)
     return result, hwid_headers
 
 
@@ -3151,6 +3206,7 @@ def merge_whitelist_subscription(token: str = "") -> list:
     for number in WHITELIST_NUMBERS:
         if number in prepared:
             out.append(prepared[number])
+    stamp_subscription_adblock(out)
     return out
 
 
@@ -3183,6 +3239,7 @@ def merge_free_subscription(
     if extras:
         result.append(build_separator_cfg("Дополнительно"))
         result.extend(extras)
+    stamp_subscription_adblock(result)
     return result
 
 

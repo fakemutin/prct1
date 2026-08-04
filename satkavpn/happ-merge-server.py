@@ -43,7 +43,7 @@ TOKEN_PATH = re.compile(
 PLAN_META = {
     None: {
         "title": "SatkaVPN",
-        "announce": "@satkavpnsupport — поддержка SatkaVPN",
+        "announce": "Включите routing-профиль из подписки (YouTube без рекламы) · @satkavpnsupport",
         "routing": True,
     },
     "whitelist": {

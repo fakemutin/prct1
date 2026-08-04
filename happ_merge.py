@@ -511,6 +511,21 @@ BEELINE_CDN_BLOB_MARKERS = (
 )
 YANDEX_CDN_EDGE = "cdn.satkaconnect.xyz"
 YANDEX_CDN_ORIGIN_HOST = "bee-he.satkaconnect.xyz"
+# Yandex CDN edge: только GET/HEAD/OPTIONS — uplink через GET + header (Xray xhttp)
+YANDEX_XHTTP_UPLINK_KEY = "X-Session"
+
+
+def patch_yandex_xhttp_get_uplink(xh: dict) -> None:
+    """Uplink без POST: GET + данные в HTTP-заголовках (packet-up)."""
+    extra = xh.get("extra")
+    if not isinstance(extra, dict):
+        extra = {}
+        xh["extra"] = extra
+    xh["mode"] = "packet-up"
+    extra["mode"] = "packet-up"
+    extra["uplinkHTTPMethod"] = "GET"
+    extra["uplinkDataPlacement"] = "header"
+    extra["uplinkDataKey"] = YANDEX_XHTTP_UPLINK_KEY
 
 
 def is_yandex_cdn_native(item: dict) -> bool:
@@ -2706,6 +2721,7 @@ def prepare_yandex_whitelist_cfg(native_cfg: dict) -> dict:
         ss = ob.setdefault("streamSettings", {})
         xh = ss.setdefault("xhttpSettings", {})
         xh["host"] = YANDEX_CDN_EDGE
+        patch_yandex_xhttp_get_uplink(xh)
         if ss.get("security") == "tls":
             ts = ss.setdefault("tlsSettings", {})
             ts["serverName"] = YANDEX_CDN_EDGE

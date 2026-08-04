@@ -2367,8 +2367,10 @@ def find_beeline_native(items: list) -> dict | None:
         BEELINE_WHITELIST_REMARK,
         "Лучшие списки!",
         "Лучшие белые списки!",
+        "noe0mevhvk.a.trbcdn.net",
         "wr6wsz097v.a.trbcdn.net",
         "myxmamekak.a.trbcdn.net",
+        "bee-he.satkaconnect",
         "/data/img/v3/813257.php",
     )
     for item in items:
@@ -2384,6 +2386,33 @@ def index_natives(items: list) -> dict[str, dict]:
     if beeline:
         out[BEELINE_NATIVE_KEY] = beeline
     return out
+
+
+def subscription_vless_uuid_from_satka(satka: list) -> str | None:
+    """Subscriber VLESS UUID from native servers (not the shared beeline template)."""
+    for item in satka:
+        remark = item.get("remarks") or ""
+        blob = remark + json.dumps(item, ensure_ascii=False)
+        if BEELINE_WHITELIST_REMARK in remark or "trbcdn.net" in blob:
+            continue
+        ob = get_user_vless_outbound(item) or get_vless_outbound(item)
+        if not ob:
+            continue
+        users = ob.get("settings", {}).get("vnext", [{}])[0].get("users", [])
+        if users and users[0].get("id"):
+            return users[0]["id"]
+    return None
+
+
+def patch_cfg_vless_uuid(cfg: dict, vless_uuid: str) -> None:
+    ob = get_vless_outbound(cfg) or get_user_vless_outbound(cfg)
+    if not ob or not vless_uuid:
+        return
+    vnext = ob.setdefault("settings", {}).setdefault("vnext", [{}])[0]
+    users = vnext.setdefault("users", [{}])
+    if users:
+        users[0]["id"] = vless_uuid
+        users[0].setdefault("encryption", "none")
 
 
 def resolve_beeline_native(natives: dict[str, dict]) -> dict | None:
@@ -2424,13 +2453,35 @@ def prepare_beeline_whitelist_cfg(native_cfg: dict) -> dict:
     return cfg
 
 
-def append_beeline_whitelist(result: list, natives: dict[str, dict]) -> None:
+def append_beeline_whitelist(
+    result: list,
+    natives: dict[str, dict],
+    *,
+    satka: list | None = None,
+) -> None:
     if not BEELINE_IN_SUBSCRIPTION:
         return
     native = resolve_beeline_native(natives)
     if not native:
         return
-    result.append(prepare_beeline_whitelist_cfg(native))
+    cfg = prepare_beeline_whitelist_cfg(native)
+    if satka:
+        uid = subscription_vless_uuid_from_satka(satka)
+        if uid:
+            patch_cfg_vless_uuid(cfg, uid)
+    result.append(cfg)
+
+
+def ensure_beeline_whitelist_entry(
+    result: list,
+    natives: dict[str, dict],
+    *,
+    satka: list | None = None,
+) -> None:
+    """Добавить Beeline CDN, если ещё не в списке (тариф «Для мамы» и др.)."""
+    if any(is_beeline_cfg(cfg) for cfg in result):
+        return
+    append_beeline_whitelist(result, natives, satka=satka)
 
 
 def prepare_native_lte_exit(cfg: dict, native_key: str) -> None:
@@ -2861,6 +2912,7 @@ def append_whitelist_subset(
     numbers: tuple[int, ...],
     auto_pool: tuple[int, ...],
     natives: dict[str, dict] | None = None,
+    satka: list | None = None,
     remark_formatter=None,
 ) -> int:
     """Подмножество белых списков с автовыбором."""
@@ -2891,7 +2943,7 @@ def append_whitelist_subset(
         if balancer:
             result.append(balancer)
 
-    append_beeline_whitelist(result, natives)
+    append_beeline_whitelist(result, natives or {}, satka=satka)
 
     for number in numbers:
         if number in prepared:
@@ -2904,6 +2956,7 @@ def append_whitelist_paid(
     server_no: int,
     *,
     natives: dict[str, dict] | None = None,
+    satka: list | None = None,
 ) -> int:
     """Белые списки в платной подписке (Candelix / sinful / static)."""
     use_candelix = paid_whitelist_from_candelix()
@@ -2927,7 +2980,7 @@ def append_whitelist_paid(
         if balancer:
             result.append(balancer)
 
-    append_beeline_whitelist(result, natives)
+    append_beeline_whitelist(result, natives or {}, satka=satka)
 
     for number in WHITELIST_NUMBERS:
         if number in prepared:
@@ -3033,7 +3086,9 @@ def merge_subscription(
     server_no = 0
 
     result.append(build_separator_cfg(SECTION_WHITELIST))
-    server_no = append_whitelist_paid(result, server_no, natives=natives)
+    server_no = append_whitelist_paid(
+        result, server_no, natives=natives, satka=satka
+    )
 
     stable, unstable_sep, unstable = split_location_sections(locations)
     stable_by_number = locations_by_number(stable)
@@ -3115,8 +3170,10 @@ def merge_mom_subscription(
         numbers=MOM_WHITELIST_NUMBERS,
         auto_pool=MOM_WHITELIST_NUMBERS,
         natives=natives,
+        satka=satka,
         remark_formatter=format_mom_whitelist_remark,
     )
+    ensure_beeline_whitelist_entry(result, natives, satka=satka)
 
     stable, _, _ = split_location_sections(locations)
     stable_by_number = {int(loc["number"]): loc for loc in stable}
@@ -3176,9 +3233,11 @@ def merge_whitelist_subscription(token: str = "") -> list:
         return [build_expired_notice_cfg()]
 
     natives = fetch_torrent_exit_natives(token) or {}
+    beeline_satka: list | None = None
     if token:
         try:
             satka, _ = fetch_native_json(token, None)
+            beeline_satka = satka
             natives = {**natives, **index_natives(satka)}
         except Exception as exc:
             print(f"whitelist native merge failed: {exc}")
@@ -3202,7 +3261,7 @@ def merge_whitelist_subscription(token: str = "") -> list:
         )
         if balancer:
             out.append(balancer)
-    append_beeline_whitelist(out, natives)
+    append_beeline_whitelist(out, natives, satka=beeline_satka)
     for number in WHITELIST_NUMBERS:
         if number in prepared:
             out.append(prepared[number])

@@ -509,7 +509,8 @@ BEELINE_CDN_BLOB_MARKERS = (
     "cdn.satkaconnect.xyz",
     "myxmamekak.a.trbcdn.net",
 )
-YANDEX_CDN_ORIGIN = "bee-he.satkaconnect.xyz"
+YANDEX_CDN_EDGE = "cdn.satkaconnect.xyz"
+YANDEX_CDN_ORIGIN_HOST = "bee-he.satkaconnect.xyz"
 
 
 def is_yandex_cdn_native(item: dict) -> bool:
@@ -2692,7 +2693,7 @@ def prepare_beeline_whitelist_cfg(native_cfg: dict) -> dict:
 
 
 def prepare_yandex_whitelist_cfg(native_cfg: dict) -> dict:
-    """Yandex БС CDN: origin bee-he (edge cdn.satkaconnect.xyz блокирует POST/xhttp)."""
+    """Yandex БС CDN: edge cdn.satkaconnect.xyz, origin pull Host bee-he (панель Yandex CDN)."""
     cfg = copy.deepcopy(native_cfg)
     remark = (native_cfg.get("remarks") or "").strip()
     cfg["remarks"] = remark
@@ -2700,14 +2701,14 @@ def prepare_yandex_whitelist_cfg(native_cfg: dict) -> dict:
     ob = get_vless_outbound(cfg) or get_user_vless_outbound(cfg)
     if ob:
         vn = ob["settings"]["vnext"][0]
-        vn["address"] = YANDEX_CDN_ORIGIN
+        vn["address"] = YANDEX_CDN_EDGE
         vn["port"] = 443
         ss = ob.setdefault("streamSettings", {})
         xh = ss.setdefault("xhttpSettings", {})
-        xh["host"] = YANDEX_CDN_ORIGIN
+        xh["host"] = YANDEX_CDN_EDGE
         if ss.get("security") == "tls":
             ts = ss.setdefault("tlsSettings", {})
-            ts["serverName"] = YANDEX_CDN_ORIGIN
+            ts["serverName"] = YANDEX_CDN_EDGE
             ts.setdefault("fingerprint", "firefox")
             ts["alpn"] = ["h2"]
     meta = cfg.setdefault("meta", {})

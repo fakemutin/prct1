@@ -214,7 +214,7 @@ def build_happ_routing_url() -> str:
     return f"happ://routing/onadd/{payload}"
 
 
-HAPP_ROUTING = os.environ.get("HAPP_ROUTING") or build_happ_routing_url()
+HAPP_ROUTING = os.environ.get("HAPP_ROUTING", "").strip()
 
 ADBLOCK_DOMAINS = [
     "domain:googleadservices.com",
@@ -343,6 +343,36 @@ BEELINE_TELEGRAM_DOMAINS = [
     "domain:vestige.web.telegram.org",
     "domain:flora.web.telegram.org",
     "domain:k.telegram.org",
+    "domain:api.telegram.org",
+    "domain:graph.org",
+    "domain:telegram.me",
+    "domain:mtproto.io",
+]
+BEELINE_EXTRA_BANK_DOMAINS = [
+    "domain:tinkoff.ru",
+    "domain:tbank.ru",
+    "domain:tbankonline.ru",
+    "domain:vtb.ru",
+    "domain:online.vtb.ru",
+    "domain:alfabank.ru",
+    "domain:alfabank.com",
+    "domain:raiffeisen.ru",
+    "domain:yoomoney.ru",
+    "domain:nspk.ru",
+    "domain:sbp.nspk.ru",
+    "domain:rosbank.ru",
+    "domain:open.ru",
+    "domain:gosuslugi.ru",
+    "domain:esia.gosuslugi.ru",
+    "domain:psbank.ru",
+    "domain:homecredit.ru",
+    "domain:rencredit.ru",
+    "domain:sovcombank.ru",
+    "domain:uralsib.ru",
+    "domain:akbars.ru",
+    "domain:modulbank.ru",
+    "domain:tochka.com",
+    "domain:banki.ru",
 ]
 AUTO_LOCATION_REMARK = "🎲 Авто-выбор локации"
 AUTO_BALANCER_TAG = "auto-pick"
@@ -488,6 +518,21 @@ def is_separator_cfg(cfg: dict) -> bool:
     return "⬇️" in (cfg.get("remarks", "") or "")
 
 
+def adblock_block_rules(chunk: int = 24) -> list[dict]:
+    """Chunked block rules — Happ игнорирует гигантские domain-списки в одном rule."""
+    domains = list(HAPP_ROUTING_ADBLOCK_DOMAINS)
+    rules: list[dict] = []
+    for i in range(0, len(domains), chunk):
+        rules.append(
+            {
+                "type": "field",
+                "domain": domains[i : i + chunk],
+                "outboundTag": "block",
+            }
+        )
+    return rules
+
+
 def inject_routing_adblock_rules(cfg: dict) -> None:
     """Принудительно вставить block-правила в начало routing (все пути подписки)."""
     if is_beeline_cfg(cfg) or is_separator_cfg(cfg):
@@ -502,18 +547,7 @@ def inject_routing_adblock_rules(cfg: dict) -> None:
         r.get("outboundTag") == "block" and r.get("domain") for r in rules
     )
     if not has_block:
-        # Разбить на чанки — Happ иногда игнорирует гигантский domain list
-        domains = list(HAPP_ROUTING_ADBLOCK_DOMAINS)
-        chunk = 24
-        for i in range(0, len(domains), chunk):
-            rules.insert(
-                i // chunk,
-                {
-                    "type": "field",
-                    "domain": domains[i : i + chunk],
-                    "outboundTag": "block",
-                },
-            )
+        rules = adblock_block_rules() + rules
     routing["rules"] = rules
 
 
@@ -715,7 +749,7 @@ def rebuild_whitelist_routing(
     cfg["routing"] = {
         "domainStrategy": "IPIfNonMatch",
         "rules": [
-            {"type": "field", "domain": list(HAPP_ROUTING_ADBLOCK_DOMAINS), "outboundTag": "block"},
+            *adblock_block_rules(),
             {"type": "field", "ip": list(PRIVATE_CIDRS), "outboundTag": "direct"},
             *_whitelist_direct_bypass_rules(),
             _whitelist_default_egress_rule(
@@ -754,7 +788,7 @@ def rebuild_safe_routing(cfg: dict) -> None:
     cfg["routing"] = {
         "domainStrategy": "IPIfNonMatch",
         "rules": [
-            {"type": "field", "domain": list(HAPP_ROUTING_ADBLOCK_DOMAINS), "outboundTag": "block"},
+            *adblock_block_rules(),
             {"type": "field", "domain": list(RU_DIRECT_DOMAINS), "outboundTag": "direct"},
             {"type": "field", "ip": list(PRIVATE_CIDRS), "outboundTag": "direct"},
             {"type": "field", "protocol": ["bittorrent"], "outboundTag": "direct"},
@@ -769,7 +803,7 @@ def rebuild_regular_routing(cfg: dict) -> None:
     cfg["routing"] = {
         "domainStrategy": "IPIfNonMatch",
         "rules": [
-            {"type": "field", "domain": list(HAPP_ROUTING_ADBLOCK_DOMAINS), "outboundTag": "block"},
+            *adblock_block_rules(),
             {"type": "field", "domain": list(RU_DIRECT_DOMAINS), "outboundTag": "direct"},
             {"type": "field", "ip": list(PRIVATE_CIDRS), "outboundTag": "direct"},
             {"type": "field", "protocol": ["bittorrent"], "outboundTag": "direct"},
@@ -846,17 +880,117 @@ def normalize_beeline_outbound(ob: dict) -> None:
 
 
 def beeline_dns_block() -> dict:
-    """DoH через туннель — UDP:53 на глушилках режется, системный DNS тоже."""
+    """DoH через туннель — UDP:53 на глушилках режется."""
+    direct_names = beeline_direct_domain_names()
     return {
         "servers": [
-            "https://1.1.1.1/dns-query",
-            "https://8.8.8.8/dns-query",
-            "https://dns.google/dns-query",
-            "1.1.1.1",
-            "8.8.8.8",
+            {
+                "tag": "remote-dns",
+                "address": "https://1.1.1.1/dns-query",
+                "detour": "proxy",
+            },
+            {
+                "tag": "remote-dns2",
+                "address": "https://8.8.8.8/dns-query",
+                "detour": "proxy",
+            },
+            {"tag": "direct-dns", "address": "1.1.1.1"},
+        ],
+        "rules": [
+            {"domain": direct_names, "server": "direct-dns"},
         ],
         "queryStrategy": "UseIPv4",
+        "disableFallback": True,
     }
+
+
+def beeline_direct_domain_names() -> list[str]:
+    """Plain hostnames for DNS/routing direct (banks, RU apps, IP-check)."""
+    names: list[str] = []
+    for entry in (
+        WHITELIST_APP_DIRECT_DOMAINS
+        + BEELINE_EXTRA_BANK_DOMAINS
+        + WHITELIST_IP_CHECK_DOMAINS
+    ):
+        if entry.startswith("domain:"):
+            names.append(entry[7:])
+        else:
+            names.append(entry)
+    return names
+
+
+def ensure_beeline_sniff_inbound(cfg: dict) -> None:
+    """Per-profile JSON: sniffing inbound для браузера в Happ."""
+    if cfg.get("inbounds"):
+        ensure_whitelist_sniffing(cfg)
+        return
+    cfg["inbounds"] = [
+        {
+            "tag": "sniff-in",
+            "port": 10853,
+            "listen": "127.0.0.1",
+            "protocol": "socks",
+            "settings": {"auth": "noauth", "udp": True},
+            "sniffing": {
+                "enabled": True,
+                "routeOnly": True,
+                "destOverride": ["http", "tls", "quic"],
+            },
+        }
+    ]
+
+
+def optimize_beeline_xhttp_extra(cfg: dict) -> None:
+    """Stable xmux для Beeline CDN xhttp (без maxConnections — ломает Happ/Safari)."""
+    ob = get_vless_outbound(cfg) or get_user_vless_outbound(cfg)
+    if not ob:
+        return
+    xh = ob.get("streamSettings", {}).get("xhttpSettings", {})
+    extra = xh.get("extra")
+    if not isinstance(extra, dict):
+        return
+    extra["xmux"] = {
+        "maxConcurrency": "8",
+        "hMaxRequestTimes": "300-600",
+        "hMaxReusableSecs": "900-1800",
+    }
+    extra.setdefault("xPaddingBytes", "50-150")
+    extra.setdefault("xPaddingObfsMode", True)
+    extra.setdefault("xPaddingMethod", "tokenish")
+    extra.setdefault("xPaddingHeader", "X-Api-Key")
+    extra.setdefault("xPaddingPlacement", "header")
+    extra["scMinPostsIntervalMs"] = "2-4"
+
+
+def finalize_beeline_tunnel_cfg(
+    cfg: dict,
+    *,
+    ping_seed: str | None = None,
+) -> None:
+    """LTE Beeline: Telegram/Web через туннель, QUIC/DNS через proxy, банки direct."""
+    sanitize_routing(cfg)
+    strip_whitelist_outbounds(cfg)
+    ensure_block_outbound(cfg)
+    ensure_direct_outbound(cfg)
+    ensure_beeline_sniff_inbound(cfg)
+    optimize_beeline_xhttp_extra(cfg)
+    ob = (
+        whitelist_primary_outbound(cfg)
+        or get_vless_outbound(cfg)
+        or get_user_vless_outbound(cfg)
+    )
+    if ob:
+        normalize_beeline_outbound(ob)
+        ss = ob.setdefault("streamSettings", {})
+        sock = ss.setdefault("sockopt", {})
+        sock["tcpFastOpen"] = True
+        sock["tcpNoDelay"] = True
+        sock["domainStrategy"] = "UseIPv4"
+        sock["tcpKeepAliveInterval"] = 30
+    cfg["dns"] = beeline_dns_block()
+    rebuild_beeline_whitelist_routing(cfg)
+    if ping_seed:
+        apply_fake_ping_meta(cfg, ping_seed)
 
 
 def rebuild_beeline_whitelist_routing(
@@ -1324,7 +1458,7 @@ def apply_balancer_whitelist_routing(
             }
         ],
         "rules": [
-            {"type": "field", "domain": list(HAPP_ROUTING_ADBLOCK_DOMAINS), "outboundTag": "block"},
+            *adblock_block_rules(),
             {"type": "field", "ip": list(PRIVATE_CIDRS), "outboundTag": "direct"},
             *_whitelist_direct_bypass_rules(),
             _whitelist_default_egress_rule(balancer_tag=AUTO_BALANCER_TAG),
@@ -1345,11 +1479,7 @@ def apply_balancer_regular_routing(cfg: dict, selector: list[str]) -> None:
             }
         ],
         "rules": [
-            {
-                "type": "field",
-                "domain": list(HAPP_ROUTING_ADBLOCK_DOMAINS),
-                "outboundTag": "block",
-            },
+            *adblock_block_rules(),
             {"type": "field", "domain": list(RU_DIRECT_DOMAINS), "outboundTag": "direct"},
             {"type": "field", "ip": list(PRIVATE_CIDRS), "outboundTag": "direct"},
             {"type": "field", "protocol": ["bittorrent"], "outboundTag": "direct"},
@@ -2435,12 +2565,8 @@ def resolve_beeline_native(natives: dict[str, dict]) -> dict | None:
 
 
 def finalize_beeline_cfg(cfg: dict, *, ping_seed: str | None = None) -> None:
-    """Beeline: tunnel cfg на проде, whitelist cfg в старых ревизиях."""
-    fn = globals().get("finalize_beeline_tunnel_cfg")
-    if fn is not None:
-        fn(cfg, ping_seed=ping_seed)
-    else:
-        finalize_beeline_whitelist_cfg(cfg, ping_seed=ping_seed)
+    """Beeline CDN tunnel — Telegram/browser через proxy, без YouTube adblock."""
+    finalize_beeline_tunnel_cfg(cfg, ping_seed=ping_seed)
 
 
 def prepare_beeline_whitelist_cfg(native_cfg: dict) -> dict:

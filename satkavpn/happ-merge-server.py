@@ -43,23 +43,23 @@ TOKEN_PATH = re.compile(
 PLAN_META = {
     None: {
         "title": "SatkaVPN",
-        "announce": "Включите routing-профиль из подписки (YouTube без рекламы) · @satkavpnsupport",
-        "routing": True,
+        "announce": "YouTube без рекламы встроен в серверы · @satkavpnsupport",
+        "routing": False,
     },
     "whitelist": {
         "title": "SatkaVPN Whitelist",
-        "announce": "@satkavpnsupport — платная подписка «Белые списки» · routing: блок рекламы YT",
-        "routing": True,
+        "announce": "@satkavpnsupport — платная подписка «Белые списки»",
+        "routing": False,
     },
     "free": {
         "title": "SatkaVPN Free",
-        "announce": "@satkavpnsupport — бесплатные VPN · routing: блок рекламы YT",
-        "routing": True,
+        "announce": "@satkavpnsupport — бесплатные VPN",
+        "routing": False,
     },
     "mom": {
         "title": "SatkaVPN — Для мамы",
         "announce": "@satkavpnsupport — тариф «Для мамы»: глушилки, Telegram и YouTube",
-        "routing": True,
+        "routing": False,
     },
 }
 
@@ -103,7 +103,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("ping-result", "time")
         self.send_header("subscription-always-hwid-enable", "0")
         self.send_header("hide-settings", "1")
-        if meta["routing"] or HAPP_ROUTING:
+        if meta.get("routing") and HAPP_ROUTING:
             routing_value = os.environ.get("HAPP_ROUTING") or HAPP_ROUTING
             if routing_value:
                 self.send_header("routing", routing_value)

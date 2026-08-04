@@ -153,7 +153,68 @@ INTERNAL_HEADERS = {
 }
 
 
-HAPP_ROUTING = os.environ.get("HAPP_ROUTING", """happ://routing/onadd/eyJOYW1lIjogIlNhdGthVlBOIOKAlCBZb3VUdWJlINCx0LXQtyDRgNC10LrQu9Cw0LzRiyIsICJHbG9iYWxQcm94eSI6ICJ0cnVlIiwgIlJvdXRlT3JkZXIiOiAiYmxvY2stcHJveHktZGlyZWN0IiwgIlJlbW90ZUROU1R5cGUiOiAiRG9IIiwgIlJlbW90ZUROU0RvbWFpbiI6ICJodHRwczovL2Nsb3VkZmxhcmUtZG5zLmNvbS9kbnMtcXVlcnkiLCAiRG9tZXN0aWNETlNUeXBlIjogIkRvVSIsICJHZW9zaXRldXJsIjogImh0dHBzOi8vZ2l0aHViLmNvbS9Mb3lhbHNvbGRpZXIvdjJyYXktcnVsZXMtZGF0L3JlbGVhc2VzL2xhdGVzdC9kb3dubG9hZC9nZW9zaXRlLmRhdCIsICJHZW9pcHVybCI6ICJodHRwczovL2dpdGh1Yi5jb20vTG95YWxzb2xkaWVyL3YycmF5LXJ1bGVzLWRhdC9yZWxlYXNlcy9sYXRlc3QvZG93bmxvYWQvZ2VvaXAuZGF0IiwgIlVzZUNodW5rRmlsZXMiOiAidHJ1ZSIsICJEaXJlY3RJcCI6IFsiZ2VvaXA6cHJpdmF0ZSIsICIxMC4wLjAuMC84IiwgIjE3Mi4xNi4wLjAvMTIiLCAiMTkyLjE2OC4wLjAvMTYiXSwgIkJsb2NrU2l0ZXMiOiBbImdlb3NpdGU6Y2F0ZWdvcnktYWRzLWFsbCIsICJkb21haW46Z29vZ2xlYWRzZXJ2aWNlcy5jb20iLCAiZG9tYWluOmdvb2dsZXN5bmRpY2F0aW9uLmNvbSIsICJkb21haW46ZG91YmxlY2xpY2submV0IiwgImRvbWFpbjphZHNlcnZpY2UuZ29vZ2xlLmNvbSIsICJkb21haW46cGFnZWFkMi5nb29nbGVzeW5kaWNhdGlvbi5jb20iLCAiZG9tYWluOmFkcy55b3V0dWJlLmNvbSIsICJkb21haW46cy55b3V0dWJlLmNvbSIsICJkb21haW46c3N0YXRzLnlvdXR1YmUuY29tIiwgImRvbWFpbjptYW5pZmVzdC5nb29nbGV2aWRlby5jb20iLCAiZG9tYWluOnB1YmFkcy5nLmRvdWJsZWNsaWNrLm5ldCIsICJkb21haW46c3RhdGljLmRvdWJsZWNsaWNrLm5ldCIsICJkb21haW46Z29vZ2xlYWRzLmcuZG91YmxlY2xpY2submV0IiwgImRvbWFpbjphZGUuZ29vZ2xlc3luZGljYXRpb24uY29tIiwgImRvbWFpbjoybWRuLm5ldCIsICJkb21haW46Z29vZ2xldGFnbWFuYWdlci5jb20iLCAiZG9tYWluOmdvb2dsZXRhZ3NlcnZpY2VzLmNvbSIsICJkb21haW46Z29vZ2xlLWFuYWx5dGljcy5jb20iLCAiZG9tYWluOmZscy5kb3VibGVjbGljay5uZXQiLCAiZnVsbDp5b3V0dWJlLmNvbS9wYWdlYWQvIiwgImZ1bGw6d3d3LnlvdXR1YmUuY29tL3BhZ2VhZC8iLCAiZnVsbDptLnlvdXR1YmUuY29tL3BhZ2VhZC8iLCAiZnVsbDp5b3V0dWJlLmNvbS9hcGkvc3RhdHMvYWRzIiwgImZ1bGw6d3d3LnlvdXR1YmUuY29tL2FwaS9zdGF0cy9hZHMiLCAiZnVsbDp5b3V0dWJlLmNvbS9wdHJhY2tpbmciLCAiZnVsbDp3d3cueW91dHViZS5jb20vcHRyYWNraW5nIl0sICJQcm94eVNpdGVzIjogWyJnZW9zaXRlOnlvdXR1YmUiLCAiZ2Vvc2l0ZTpnb29nbGUiXSwgIkRvbWFpblN0cmF0ZWd5IjogIklQSWZOb25NYXRjaCIsICJGYWtlRE5TIjogImZhbHNlIn0=""")
+def build_happ_routing_url() -> str:
+    """Happ routing profile: geosite ads + explicit YouTube/Google ad domains."""
+    block_sites = [
+        "geosite:category-ads-all",
+        "geosite:category-ads",
+        "geosite:google-ads",
+        "domain:googleadservices.com",
+        "domain:googlesyndication.com",
+        "domain:doubleclick.net",
+        "domain:adservice.google.com",
+        "domain:pagead2.googlesyndication.com",
+        "domain:ads.youtube.com",
+        "domain:s.youtube.com",
+        "domain:sstats.youtube.com",
+        "domain:manifest.googlevideo.com",
+        "domain:redirector.googlevideo.com",
+        "domain:redirector.c.youtube.com",
+        "domain:pubads.g.doubleclick.net",
+        "domain:static.doubleclick.net",
+        "domain:googleads.g.doubleclick.net",
+        "domain:ade.googlesyndication.com",
+        "domain:2mdn.net",
+        "domain:googletagmanager.com",
+        "domain:googletagservices.com",
+        "domain:google-analytics.com",
+        "domain:gvt1.com",
+        "domain:gvt2.com",
+        "full:youtube.com/pagead/",
+        "full:www.youtube.com/pagead/",
+        "full:m.youtube.com/pagead/",
+        "full:youtube.com/api/stats/ads",
+        "full:www.youtube.com/api/stats/ads",
+        "full:youtube.com/ptracking",
+        "full:www.youtube.com/ptracking",
+        "full:youtube.com/get_midroll_info",
+        "full:www.youtube.com/get_midroll_info",
+        "full:youtube.com/initplayback",
+        "full:www.youtube.com/initplayback",
+    ]
+    routing = {
+        "Name": "SatkaVPN — YouTube без рекламы",
+        "GlobalProxy": "true",
+        "RouteOrder": "block-proxy-direct",
+        "RemoteDNSType": "DoH",
+        "RemoteDNSDomain": "https://cloudflare-dns.com/dns-query",
+        "DomesticDNSType": "DoU",
+        "Geositeurl": "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat",
+        "Geoipurl": "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat",
+        "UseChunkFiles": "true",
+        "DirectIp": ["geoip:private", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"],
+        "BlockSites": block_sites,
+        "ProxySites": ["geosite:youtube", "geosite:google"],
+        "DomainStrategy": "IPIfNonMatch",
+        "FakeDNS": "false",
+    }
+    payload = base64.b64encode(
+        json.dumps(routing, ensure_ascii=False).encode()
+    ).decode()
+    return f"happ://routing/onadd/{payload}"
+
+
+HAPP_ROUTING = os.environ.get("HAPP_ROUTING") or build_happ_routing_url()
 
 ADBLOCK_DOMAINS = [
     "domain:googleadservices.com",
@@ -215,10 +276,29 @@ YOUTUBE_ADBLOCK_DOMAINS = [
     "keyword:googlesyndication",
     "keyword:doubleclick",
     "keyword:adservice",
+    # Aggressive (non-video CDN)
+    "domain:gvt1.com",
+    "domain:gvt2.com",
+    "domain:video-stats.l.google.com",
+    "domain:innovid.com",
+    "domain:stats.doubleclick.net",
+    "full:youtube.com/api/stats/qoe",
+    "full:www.youtube.com/api/stats/qoe",
+    "full:youtube.com/youtubei/v1/log_event",
+    "full:www.youtube.com/youtubei/v1/log_event",
+    "full:m.youtube.com/youtubei/v1/log_event",
+]
+
+YOUTUBE_ADBLOCK_REGEXP = [
+    "regexp:.*pagead.*",
+    "regexp:.*googleads.*",
+    "regexp:.*doubleclick.*",
+    "regexp:.*googlesyndication.*",
+    "regexp:.*adservice.*",
 ]
 
 REGULAR_ADBLOCK_DOMAINS = list(
-    dict.fromkeys(ADBLOCK_DOMAINS + YOUTUBE_ADBLOCK_DOMAINS)
+    dict.fromkeys(ADBLOCK_DOMAINS + YOUTUBE_ADBLOCK_DOMAINS + YOUTUBE_ADBLOCK_REGEXP)
 )
 
 WHITELIST_TOP_NUMBERS = frozenset({1, 2, 4, 11})
@@ -232,7 +312,7 @@ REGULAR_STABLE_NUMBERS = tuple(range(13, 27))
 REGULAR_UNSTABLE_NUMBERS = tuple(range(27, 32))
 
 AUTO_WHITELIST_REMARK = "🎲 Авто-выбор белые списки"
-BEELINE_WHITELIST_REMARK = "🇳🇱 Лучшие списки! | ВСЕ ОПЕРАТОРЫ"
+BEELINE_WHITELIST_REMARK = "Лучшие белые списки! | ВСЕ ОПЕРАТОРЫ"
 BEELINE_NATIVE_KEY = "Нидерланды Beeline"
 BEELINE_IN_SUBSCRIPTION = os.environ.get(
     "BEELINE_IN_SUBSCRIPTION", "true"
@@ -369,15 +449,21 @@ MIHOMO_ADBLOCK_RULES = [
     "DOMAIN-KEYWORD,doubleclick,REJECT",
     "DOMAIN-KEYWORD,adservice,REJECT",
     "URL-REGEX,(?i)^https?://([^/]+\\.)?youtube\\.com/(pagead|api/stats/ads|ptracking|get_midroll),REJECT",
-    "URL-REGEX,(?i)^https?://([^/]+\\.)?googlevideo\\.com/.*(oad=|cmo=ad|source=oad),REJECT",
+    "URL-REGEX,(?i)^https?://([^/]+\\.)?googlevideo\\.com/.*(oad=|cmo=ad|source=oad|initplayback),REJECT",
+    "DOMAIN-SUFFIX,gvt1.com,REJECT",
+    "DOMAIN-SUFFIX,gvt2.com,REJECT",
+    "DOMAIN-SUFFIX,redirector.googlevideo.com,REJECT",
+    "DOMAIN-KEYWORD,pagead,REJECT",
 ]
 
 ADBLOCK_DNS_TAG = "adblock-dns"
 
 
 def is_beeline_cfg(cfg: dict) -> bool:
-    remark = cfg.get("remarks", "") or ""
-    if BEELINE_WHITELIST_REMARK in remark:
+    remark = (cfg.get("remarks", "") or "").lower()
+    if "лучшие белые списки" in remark and "оператор" in remark:
+        return True
+    if BEELINE_WHITELIST_REMARK.lower() in remark:
         return True
     blob = json.dumps(cfg, ensure_ascii=False, default=str)
     return any(
@@ -388,6 +474,35 @@ def is_beeline_cfg(cfg: dict) -> bool:
             "wr6wsz097v.a.trbcdn.net",
         )
     )
+
+
+def is_separator_cfg(cfg: dict) -> bool:
+    return "⬇️" in (cfg.get("remarks", "") or "")
+
+
+def inject_routing_adblock_rules(cfg: dict) -> None:
+    """Принудительно вставить block-правила в начало routing (все пути подписки)."""
+    if is_beeline_cfg(cfg) or is_separator_cfg(cfg):
+        return
+    ensure_block_outbound(cfg)
+    routing = cfg.setdefault(
+        "routing", {"domainStrategy": "IPIfNonMatch", "rules": []}
+    )
+    routing["domainStrategy"] = "IPIfNonMatch"
+    rules = list(routing.get("rules") or [])
+    has_block = any(
+        r.get("outboundTag") == "block" and r.get("domain") for r in rules
+    )
+    if not has_block:
+        rules.insert(
+            0,
+            {
+                "type": "field",
+                "domain": list(REGULAR_ADBLOCK_DOMAINS),
+                "outboundTag": "block",
+            },
+        )
+    routing["rules"] = rules
 
 
 def ensure_adblock_sniffing(cfg: dict) -> None:
@@ -442,7 +557,7 @@ def apply_adblock_dns(cfg: dict) -> None:
             has_remote = True
             new_servers.append(s)
     if not has_block:
-        new_servers.append({"tag": ADBLOCK_DNS_TAG, "address": "rcode://success"})
+        new_servers.append({"tag": ADBLOCK_DNS_TAG, "address": "rcode://refused"})
     if not has_remote:
         new_servers.insert(
             0, {"tag": "dns-remote", "address": "1.1.1.1", "detour": "proxy"}
@@ -467,10 +582,11 @@ def apply_adblock_dns(cfg: dict) -> None:
 
 
 def finalize_adblock_layer(cfg: dict) -> None:
-    """Sniff + DNS block (все серверы кроме Beeline)."""
-    if is_beeline_cfg(cfg):
+    """Sniff + DNS + routing block (все серверы кроме Beeline)."""
+    if is_beeline_cfg(cfg) or is_separator_cfg(cfg):
         return
     ensure_adblock_sniffing(cfg)
+    inject_routing_adblock_rules(cfg)
     apply_adblock_dns(cfg)
 
 

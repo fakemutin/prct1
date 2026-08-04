@@ -10,6 +10,7 @@ import re
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from happ_merge import (
+    HAPP_ROUTING,
     NativeSubscriptionError,
     is_clash_client,
     is_happ_client,
@@ -52,8 +53,8 @@ PLAN_META = {
     },
     "free": {
         "title": "SatkaVPN Free",
-        "announce": "@satkavpnsupport — бесплатные VPN SatkaVPN",
-        "routing": False,
+        "announce": "@satkavpnsupport — бесплатные VPN · routing: блок рекламы YT",
+        "routing": True,
     },
     "mom": {
         "title": "SatkaVPN — Для мамы",
@@ -102,10 +103,10 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("ping-result", "time")
         self.send_header("subscription-always-hwid-enable", "0")
         self.send_header("hide-settings", "1")
-        if meta["routing"]:
-            routing = os.environ.get("HAPP_ROUTING", "")
-            if routing:
-                self.send_header("routing", routing)
+        if meta["routing"] or HAPP_ROUTING:
+            routing_value = os.environ.get("HAPP_ROUTING") or HAPP_ROUTING
+            if routing_value:
+                self.send_header("routing", routing_value)
         if extra:
             for key, value in extra.items():
                 self.send_header(key, value)

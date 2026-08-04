@@ -301,10 +301,14 @@ REGULAR_ADBLOCK_DOMAINS = list(
     dict.fromkeys(ADBLOCK_DOMAINS + YOUTUBE_ADBLOCK_DOMAINS + YOUTUBE_ADBLOCK_REGEXP)
 )
 
-# Happ/Xray routing: без regexp (ломает block-правила в Happ)
+# Happ routing: только domain:/full: (keyword/regexp ломают LTE в Happ)
 HAPP_ROUTING_ADBLOCK_DOMAINS = list(
     dict.fromkeys(
-        [d for d in REGULAR_ADBLOCK_DOMAINS if not d.startswith("regexp:")]
+        [
+            d
+            for d in REGULAR_ADBLOCK_DOMAINS
+            if d.startswith(("domain:", "full:"))
+        ]
     )
 )
 
@@ -322,7 +326,7 @@ AUTO_WHITELIST_REMARK = "🎲 Авто-выбор белые списки"
 BEELINE_WHITELIST_REMARK = "Лучшие белые списки! | ВСЕ ОПЕРАТОРЫ"
 BEELINE_NATIVE_KEY = "Нидерланды Beeline"
 BEELINE_IN_SUBSCRIPTION = os.environ.get(
-    "BEELINE_IN_SUBSCRIPTION", "true"
+    "BEELINE_IN_SUBSCRIPTION", "false"
 ).lower() in ("1", "true", "yes")
 BEELINE_TEMPLATE_TOKEN = os.environ.get("BEELINE_TEMPLATE_TOKEN", "").strip()
 # Telegram / Web — явный proxy (MTProto, WebK, t.me на глушилках)
@@ -642,12 +646,10 @@ def stamp_subscription_adblock(configs: list) -> None:
 
 
 def finalize_adblock_layer(cfg: dict) -> None:
-    """Sniff + DNS + routing block (все серверы кроме Beeline)."""
+    """Routing block для рекламы — без DNS/inbound (ломают LTE в Happ)."""
     if is_beeline_cfg(cfg) or is_separator_cfg(cfg):
         return
-    ensure_adblock_sniffing(cfg)
     inject_routing_adblock_rules(cfg)
-    apply_adblock_dns(cfg)
 
 
 MIHOMO_WHITELIST_APP_RULES = [
@@ -792,7 +794,7 @@ def rebuild_safe_routing(cfg: dict) -> None:
             {"type": "field", "domain": list(RU_DIRECT_DOMAINS), "outboundTag": "direct"},
             {"type": "field", "ip": list(PRIVATE_CIDRS), "outboundTag": "direct"},
             {"type": "field", "protocol": ["bittorrent"], "outboundTag": "direct"},
-            {"type": "field", "network": "tcp,udp", "outboundTag": "proxy"},
+            *regular_lte_routing_tail(),
         ],
     }
 
@@ -807,7 +809,7 @@ def rebuild_regular_routing(cfg: dict) -> None:
             {"type": "field", "domain": list(RU_DIRECT_DOMAINS), "outboundTag": "direct"},
             {"type": "field", "ip": list(PRIVATE_CIDRS), "outboundTag": "direct"},
             {"type": "field", "protocol": ["bittorrent"], "outboundTag": "direct"},
-            {"type": "field", "network": "tcp,udp", "outboundTag": "proxy"},
+            *regular_lte_routing_tail(),
         ],
     }
 
@@ -846,10 +848,28 @@ def apply_fake_ping_meta(cfg: dict, seed: str) -> None:
 
 
 def simplify_dns(cfg: dict) -> None:
+    """Простой DNS + DoH через туннель (LTE: UDP:53 часто режется)."""
     cfg["dns"] = {
-        "servers": ["1.1.1.1", "8.8.8.8"],
+        "servers": [
+            {
+                "tag": "dns-remote",
+                "address": "https://1.1.1.1/dns-query",
+                "detour": "proxy",
+            },
+            "1.1.1.1",
+            "8.8.8.8",
+        ],
         "queryStrategy": "UseIPv4",
     }
+
+
+def regular_lte_routing_tail() -> list[dict]:
+    """DNS/QUIC через туннель на LTE."""
+    return [
+        {"type": "field", "network": "tcp,udp", "port": "53", "outboundTag": "proxy"},
+        {"type": "field", "network": "udp", "port": "443", "outboundTag": "proxy"},
+        {"type": "field", "network": "tcp,udp", "outboundTag": "proxy"},
+    ]
 
 
 def optimize_performance(cfg: dict) -> None:
@@ -1483,6 +1503,8 @@ def apply_balancer_regular_routing(cfg: dict, selector: list[str]) -> None:
             {"type": "field", "domain": list(RU_DIRECT_DOMAINS), "outboundTag": "direct"},
             {"type": "field", "ip": list(PRIVATE_CIDRS), "outboundTag": "direct"},
             {"type": "field", "protocol": ["bittorrent"], "outboundTag": "direct"},
+            {"type": "field", "network": "tcp,udp", "port": "53", "outboundTag": "proxy"},
+            {"type": "field", "network": "udp", "port": "443", "outboundTag": "proxy"},
             {"type": "field", "network": "tcp", "balancerTag": AUTO_BALANCER_TAG},
             {"type": "field", "network": "udp", "balancerTag": AUTO_BALANCER_TAG},
         ],
@@ -3299,7 +3321,6 @@ def merge_mom_subscription(
         satka=satka,
         remark_formatter=format_mom_whitelist_remark,
     )
-    ensure_beeline_whitelist_entry(result, natives, satka=satka)
 
     stable, _, _ = split_location_sections(locations)
     stable_by_number = {int(loc["number"]): loc for loc in stable}

@@ -511,19 +511,21 @@ BEELINE_CDN_BLOB_MARKERS = (
 )
 YANDEX_CDN_EDGE = "cdn.satkaconnect.xyz"
 YANDEX_CDN_ORIGIN_HOST = "bee-he.satkaconnect.xyz"
-YANDEX_XHTTP_MODE = "stream-one"
+YANDEX_XHTTP_MODE = "packet-up"
+YANDEX_UPLINK_METHOD = "GET"
+YANDEX_UPLINK_PLACEMENT = "header"
 
 
-def patch_yandex_xhttp_stream_one(xh: dict) -> None:
-    """Yandex CDN edge: stream-one (один HTTP-поток, без POST uplink)."""
+def patch_yandex_xhttp_cdn_edge(xh: dict) -> None:
+    """Yandex CDN edge: только GET/HEAD — packet-up с uplink в header."""
     extra = xh.get("extra")
     if not isinstance(extra, dict):
         extra = {}
         xh["extra"] = extra
     xh["mode"] = YANDEX_XHTTP_MODE
     extra["mode"] = YANDEX_XHTTP_MODE
-    extra.pop("uplinkHTTPMethod", None)
-    extra.pop("uplinkDataPlacement", None)
+    extra["uplinkHTTPMethod"] = YANDEX_UPLINK_METHOD
+    extra["uplinkDataPlacement"] = YANDEX_UPLINK_PLACEMENT
     extra.pop("uplinkDataKey", None)
 
 
@@ -2706,7 +2708,7 @@ def prepare_beeline_whitelist_cfg(native_cfg: dict) -> dict:
 
 
 def prepare_yandex_whitelist_cfg(native_cfg: dict) -> dict:
-    """Yandex БС CDN: cdn.satkaconnect.xyz + stream-one (без POST на edge)."""
+    """Yandex БС CDN: cdn.satkaconnect.xyz + packet-up GET (edge без POST)."""
     cfg = copy.deepcopy(native_cfg)
     remark = (native_cfg.get("remarks") or "").strip()
     cfg["remarks"] = remark
@@ -2720,7 +2722,7 @@ def prepare_yandex_whitelist_cfg(native_cfg: dict) -> dict:
         xh = ss.setdefault("xhttpSettings", {})
         xh["host"] = YANDEX_CDN_EDGE
         xh["path"] = "/session/preview"
-        patch_yandex_xhttp_stream_one(xh)
+        patch_yandex_xhttp_cdn_edge(xh)
         if ss.get("security") == "tls":
             ts = ss.setdefault("tlsSettings", {})
             ts["serverName"] = YANDEX_CDN_EDGE

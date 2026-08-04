@@ -511,21 +511,20 @@ BEELINE_CDN_BLOB_MARKERS = (
 )
 YANDEX_CDN_EDGE = "cdn.satkaconnect.xyz"
 YANDEX_CDN_ORIGIN_HOST = "bee-he.satkaconnect.xyz"
-# Yandex CDN edge: только GET/HEAD/OPTIONS — uplink через GET + header (Xray xhttp)
-YANDEX_XHTTP_UPLINK_KEY = "X-Session"
+YANDEX_XHTTP_MODE = "stream-one"
 
 
-def patch_yandex_xhttp_get_uplink(xh: dict) -> None:
-    """Uplink без POST: GET + данные в HTTP-заголовках (packet-up)."""
+def patch_yandex_xhttp_stream_one(xh: dict) -> None:
+    """Yandex CDN edge: stream-one (один HTTP-поток, без POST uplink)."""
     extra = xh.get("extra")
     if not isinstance(extra, dict):
         extra = {}
         xh["extra"] = extra
-    xh["mode"] = "packet-up"
-    extra["mode"] = "packet-up"
-    extra["uplinkHTTPMethod"] = "GET"
-    extra["uplinkDataPlacement"] = "header"
-    extra["uplinkDataKey"] = YANDEX_XHTTP_UPLINK_KEY
+    xh["mode"] = YANDEX_XHTTP_MODE
+    extra["mode"] = YANDEX_XHTTP_MODE
+    extra.pop("uplinkHTTPMethod", None)
+    extra.pop("uplinkDataPlacement", None)
+    extra.pop("uplinkDataKey", None)
 
 
 def is_yandex_cdn_native(item: dict) -> bool:
@@ -2664,15 +2663,14 @@ def resolve_all_beeline_cdn_natives(
     for item in find_all_beeline_cdn_natives(list(natives.values())):
         add(item)
 
-    if not out:
-        token = BEELINE_TEMPLATE_TOKEN
-        if token:
-            try:
-                template_satka = fetch_native_json_via_api(token)
-                for item in find_all_beeline_cdn_natives(template_satka):
-                    add(item)
-            except Exception as exc:
-                print(f"beeline template fetch failed: {exc}")
+    token = BEELINE_TEMPLATE_TOKEN
+    if token:
+        try:
+            template_satka = fetch_native_json_via_api(token)
+            for item in find_all_beeline_cdn_natives(template_satka):
+                add(item)
+        except Exception as exc:
+            print(f"beeline template fetch failed: {exc}")
 
     if not out:
         add(resolve_beeline_native(natives))
@@ -2708,7 +2706,7 @@ def prepare_beeline_whitelist_cfg(native_cfg: dict) -> dict:
 
 
 def prepare_yandex_whitelist_cfg(native_cfg: dict) -> dict:
-    """Yandex БС CDN: edge cdn.satkaconnect.xyz, origin pull Host bee-he (панель Yandex CDN)."""
+    """Yandex БС CDN: cdn.satkaconnect.xyz + stream-one (без POST на edge)."""
     cfg = copy.deepcopy(native_cfg)
     remark = (native_cfg.get("remarks") or "").strip()
     cfg["remarks"] = remark
@@ -2721,7 +2719,8 @@ def prepare_yandex_whitelist_cfg(native_cfg: dict) -> dict:
         ss = ob.setdefault("streamSettings", {})
         xh = ss.setdefault("xhttpSettings", {})
         xh["host"] = YANDEX_CDN_EDGE
-        patch_yandex_xhttp_get_uplink(xh)
+        xh["path"] = "/session/preview"
+        patch_yandex_xhttp_stream_one(xh)
         if ss.get("security") == "tls":
             ts = ss.setdefault("tlsSettings", {})
             ts["serverName"] = YANDEX_CDN_EDGE

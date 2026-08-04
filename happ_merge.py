@@ -509,6 +509,12 @@ BEELINE_CDN_BLOB_MARKERS = (
     "cdn.satkaconnect.xyz",
     "myxmamekak.a.trbcdn.net",
 )
+YANDEX_CDN_ORIGIN = "bee-he.satkaconnect.xyz"
+
+
+def is_yandex_cdn_native(item: dict) -> bool:
+    remark = (item.get("remarks") or "").lower()
+    return "yandex" in remark and "бс cdn" in remark
 
 
 def is_beeline_native_item(item: dict) -> bool:
@@ -2669,12 +2675,43 @@ def prepare_beeline_whitelist_cfg(native_cfg: dict) -> dict:
     remark = (native_cfg.get("remarks") or "").strip() or BEELINE_WHITELIST_REMARK
     cfg["remarks"] = remark
     finalize_beeline_cfg(cfg, ping_seed=remark)
+    ob = get_vless_outbound(cfg) or get_user_vless_outbound(cfg)
+    if ob:
+        ss = ob.get("streamSettings") or {}
+        if ss.get("security") == "tls":
+            ts = ss.setdefault("tlsSettings", {})
+            if not ts.get("alpn"):
+                ts["alpn"] = ["h2"]
     meta = cfg.setdefault("meta", {})
     if not meta.get("serverDescription"):
         if "yandex" in remark.lower():
             meta["serverDescription"] = "Германия · Yandex CDN · LTE · Telegram/Safari"
         else:
             meta["serverDescription"] = "Германия · Beeline CDN · LTE · Telegram/Safari"
+    return cfg
+
+
+def prepare_yandex_whitelist_cfg(native_cfg: dict) -> dict:
+    """Yandex БС CDN: origin bee-he (edge cdn.satkaconnect.xyz блокирует POST/xhttp)."""
+    cfg = copy.deepcopy(native_cfg)
+    remark = (native_cfg.get("remarks") or "").strip()
+    cfg["remarks"] = remark
+    finalize_beeline_cfg(cfg, ping_seed=remark)
+    ob = get_vless_outbound(cfg) or get_user_vless_outbound(cfg)
+    if ob:
+        vn = ob["settings"]["vnext"][0]
+        vn["address"] = YANDEX_CDN_ORIGIN
+        vn["port"] = 443
+        ss = ob.setdefault("streamSettings", {})
+        xh = ss.setdefault("xhttpSettings", {})
+        xh["host"] = YANDEX_CDN_ORIGIN
+        if ss.get("security") == "tls":
+            ts = ss.setdefault("tlsSettings", {})
+            ts["serverName"] = YANDEX_CDN_ORIGIN
+            ts.setdefault("fingerprint", "firefox")
+            ts["alpn"] = ["h2"]
+    meta = cfg.setdefault("meta", {})
+    meta.setdefault("serverDescription", "Германия · Yandex CDN · LTE · Telegram/Safari")
     return cfg
 
 
@@ -2699,7 +2736,10 @@ def append_beeline_whitelist(
         remark = (native.get("remarks") or "").strip()
         if remark.lower() in existing_remarks:
             continue
-        cfg = prepare_beeline_whitelist_cfg(native)
+        if is_yandex_cdn_native(native):
+            cfg = prepare_yandex_whitelist_cfg(native)
+        else:
+            cfg = prepare_beeline_whitelist_cfg(native)
         if uid:
             patch_cfg_vless_uuid(cfg, uid)
         result.append(cfg)

@@ -3093,7 +3093,7 @@ def merge_subscription(
 def merge_mom_subscription(
     token: str, client_headers: dict | None = None
 ) -> tuple[list, dict[str, str]]:
-    """Тариф «Для мамы»: все белые списки + Beeline CDN + regular #13/#15/#16/#19."""
+    """Тариф «Для мамы»: whitelist #2/#4/#6/#12 + Beeline CDN + regular #13/#15/#16/#19."""
     if not is_subscription_active(token):
         return [build_expired_notice_cfg()], {}
 
@@ -3112,8 +3112,8 @@ def merge_mom_subscription(
     server_no = append_whitelist_subset(
         result,
         server_no,
-        numbers=WHITELIST_NUMBERS,
-        auto_pool=WHITELIST_AUTO_POOL,
+        numbers=MOM_WHITELIST_NUMBERS,
+        auto_pool=MOM_WHITELIST_NUMBERS,
         natives=natives,
         remark_formatter=format_mom_whitelist_remark,
     )
